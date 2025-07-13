@@ -4,12 +4,20 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from dotenv import load_dotenv
 import os
+import ssl
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL")
+ENVIRONMENT = os.environ.get("ENVIRONMENT")
 
-engine = create_async_engine(DATABASE_URL, echo=True)
+# print(f"Connecting to database at {DATABASE_URL}")
+
+
+
+engine = create_async_engine(DATABASE_URL, echo = ENVIRONMENT == "Development")
+
+
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 

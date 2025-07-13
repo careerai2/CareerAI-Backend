@@ -1,13 +1,19 @@
-from fastapi import FastAPI, Depends,status,Request,Response,requests,responses
+from fastapi import FastAPI, Depends,Request,status
 from fastapi.responses import JSONResponse
-from dotenv import load_dotenv
 from db import init_db
 from routes.user_routes import router as user_router
 from routes.public_routes import router as public_router
 from middlewares.verify_user import auth_required as AuthMiddleware
+from fastapi.exceptions import RequestValidationError
 
-load_dotenv()
 app = FastAPI()
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=status.HTTP_406_NOT_ACCEPTABLE,
+        content={"message": "Invalid input", "details": exc.errors()},
+    )
 
 @app.on_event("startup")
 async def on_startup():
@@ -23,7 +29,4 @@ async def root():
 app.include_router(public_router)
 
 
-app.include_router(
-    user_router,
-    dependencies=[Depends(AuthMiddleware)],
-)
+app.include_router(user_router,dependencies=[Depends(AuthMiddleware)])

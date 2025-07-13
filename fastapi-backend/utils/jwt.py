@@ -6,6 +6,7 @@ SECRET_KEY = 'your-secret-key'
 ALGORITHM = 'HS256'
 EXPIRATION_MINUTES = 60
 
+
 # ✅ JWT creation
 def create_jwt(user_id: int, role: str) -> str:
     payload = {
@@ -15,6 +16,12 @@ def create_jwt(user_id: int, role: str) -> str:
         "iat": datetime.utcnow()
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+
+
+
+
 
 # ✅ JWT decoding
 def decode_jwt(token: str) -> dict | None:

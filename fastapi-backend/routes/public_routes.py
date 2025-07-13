@@ -1,13 +1,15 @@
 from fastapi import APIRouter,Depends
 from controllers.user_controller import signup_user,login_user
-from validation.user_types import UserCreate, UserLogin
+from validation.user_types import UserSignup, UserLogin
 from sqlalchemy.ext.asyncio import AsyncSession
 from db import get_session
 
 router = APIRouter(prefix="/api", tags=["users"])
 
+
 @router.post("/signup")
-async def create_user(user_data: UserCreate, session: AsyncSession = Depends(get_session)):
+async def create_user(user_data: UserSignup, session: AsyncSession = Depends(get_session)):
+    print(user_data)
     return await signup_user(user_data,session)
 
 @router.post("/login")

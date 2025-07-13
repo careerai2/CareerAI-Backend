@@ -5,10 +5,15 @@ __pycache__/
 *.py[cod]
 *.sqlite3
 *.log
+.central_cache/
+.pycache/
 
 # IDEs and Editors
 .vscode/
+
+
 .idea/
+
 
 # OS
 .DS_Store
