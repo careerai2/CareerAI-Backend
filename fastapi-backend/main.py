@@ -5,8 +5,11 @@ from routes.user_routes import router as user_router
 from routes.public_routes import router as public_router
 from middlewares.verify_user import auth_required as AuthMiddleware
 from fastapi.exceptions import RequestValidationError
+from dotenv import load_dotenv
 
 app = FastAPI()
+
+load_dotenv()
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
