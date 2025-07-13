@@ -11,7 +11,8 @@ load_dotenv()
 DATABASE_URL = os.environ.get("DATABASE_URL")
 ENVIRONMENT = os.environ.get("ENVIRONMENT")
 
-# print(f"Connecting to database at {DATABASE_URL}")
+print(f"Connecting to database at {DATABASE_URL}")
+print(f"Environment is set to {ENVIRONMENT}")
 
 
 
