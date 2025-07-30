@@ -7,12 +7,14 @@ __pycache__/
 *.log
 .central_cache/
 .pycache/
+1
 
 # IDEs and Editors
 .vscode/
 
 
 .idea/
+.venv
 
 
 # OS

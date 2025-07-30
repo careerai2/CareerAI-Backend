@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 # 🔐 Your secret configuration
 SECRET_KEY = 'your-secret-key'
 ALGORITHM = 'HS256'
-EXPIRATION_MINUTES = 60
+EXPIRATION_MINUTES = 300
 
 
 # ✅ JWT creation

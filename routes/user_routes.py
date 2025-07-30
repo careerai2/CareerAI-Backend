@@ -17,6 +17,7 @@ async def get_user(request: Request, session: AsyncSession = Depends(get_session
     return await get_user_by_id(user_id,session)
 
 
+
 @router.post("/add-education")
 async def addEducation(request: Request, education_data: EducationCreate, session: AsyncSession = Depends(get_session)):
     user_id = request.state.user.id
@@ -55,4 +56,17 @@ async def addExtracurricular(request: Request, extracurricular_data: Extracurric
 @router.get("/get-resume")
 async def getResume(request: Request, session: AsyncSession = Depends(get_session)):
     user_id = request.state.user.id
-    return await get_resume(user_id, session)
+    return await get_all_resume(user_id, session)
+
+
+
+class ResumeInput(BaseModel):
+    user_input: str
+
+@router.post("/parse-audio-input")
+async def parseAudioInput(request: Request, resume_input: ResumeInput, session: AsyncSession = Depends(get_session)):
+    # print(f"User Input for Resume Extraction: {resume_input.user_input}")
+    user_id = request.state.user.id
+    return await extract_resume_from_audio(resume_input.user_input,user_id,session)
+
+

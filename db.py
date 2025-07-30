@@ -14,7 +14,7 @@ ENVIRONMENT = os.environ.get("ENVIRONMENT")
 print(f"Connecting to database at {DATABASE_URL}")
 print(f"Environment is set to {ENVIRONMENT}")
 
-
+print(DATABASE_URL)
 
 engine = create_async_engine(DATABASE_URL, echo = ENVIRONMENT == "Development")
 

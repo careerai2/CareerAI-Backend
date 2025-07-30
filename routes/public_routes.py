@@ -15,3 +15,5 @@ async def create_user(user_data: UserSignup, session: AsyncSession = Depends(get
 @router.post("/login")
 async def userLogin(user_data: UserLogin, session: AsyncSession = Depends(get_session)):
     return await login_user(user_data, session)
+
+

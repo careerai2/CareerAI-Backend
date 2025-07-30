@@ -44,7 +44,7 @@ async def signup_user(user_data: UserSignup, session: AsyncSession):
         
 
         return JSONResponse(
-            content={"message": "User created successfully", "access_token": token},
+            content={"message": "User created successfully", "access_token": token,"role": "user"},
             status_code=status.HTTP_201_CREATED
         )
 
@@ -58,7 +58,7 @@ async def signup_user(user_data: UserSignup, session: AsyncSession):
 async def login_user(user_data:UserLogin, session: AsyncSession):
     try:
         # Check if user exists
-        stmt = select(User).where(User.username == user_data.username)
+        stmt = select(User).where(User.email == user_data.email)
         result = await session.execute(stmt)
         user = result.scalar_one_or_none()
 
@@ -75,7 +75,7 @@ async def login_user(user_data:UserLogin, session: AsyncSession):
             raise Exception("Failed to generate JWT token")
 
         return JSONResponse(
-            content={"message": "Login successful", "access_token": token},
+            content={"message": "Login successful", "access_token": token,"role": "user"},
             status_code=status.HTTP_200_OK
         )
 
@@ -253,9 +253,8 @@ async def fetch_and_dump(session: AsyncSession, user_id: int, model: Type) -> Li
     result = await session.execute(stmt)
     return [obj.model_dump() for obj in result.scalars()]
 
-
 # get Resume
-async def get_resume(user_id: int, session: AsyncSession):
+async def get_all_resume(user_id: int, session: AsyncSession):
     try:
         # Model mapping for sections
         model_map = {
@@ -278,5 +277,35 @@ async def get_resume(user_id: int, session: AsyncSession):
     except Exception as e:
         return JSONResponse(
             content={"message": f"An error occurred while generating resume: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+        
+        
+#extract resume from user audio input
+from assistant.resume.parse_userAudio_input import parse_user_audio_input
+from validation.resume_validation import ResumeModel
+async def extract_resume_from_audio(user_input: str, user_id: str, session: AsyncSession):
+    try:
+        # Call your parsing logic — assuming it returns a valid SQLModel instance
+        resume_entry: ResumeModel = await parse_user_audio_input(user_input, user_id)
+
+        # Save to DB
+        
+        # first create a resume 
+        
+        for i in resume_entry:
+            session.add(i)
+        await session.commit()
+        await session.refresh(resume_entry)
+
+        # Return serialized response
+        return JSONResponse(
+            content=resume_entry.model_dump(),
+            status_code=status.HTTP_200_OK
+        )
+
+    except Exception as e:
+        return JSONResponse(
+            content={"message": f"An error occurred while extracting resume: {str(e)}"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

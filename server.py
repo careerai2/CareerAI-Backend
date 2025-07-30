@@ -11,4 +11,4 @@ host = "127.0.1" if os.environ.get("ENVIRONMENT") == "Development" else os.envir
 import uvicorn
 # uvicorn.run("app_main:app", reload=True)
 if __name__ == "__main__":
-    uvicorn.run("main:app", host=host, port=port, reload=True)
+    uvicorn.run("main:app", port=port, reload=True)
