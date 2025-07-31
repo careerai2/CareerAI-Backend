@@ -1,14 +1,13 @@
 from fastapi import Request, Depends, HTTPException, WebSocket, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
-from models.user_model import User
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from bson import ObjectId
 from utils.jwt import decode_jwt
-from db import get_session
+from db import get_database  # Dependency that returns `AsyncIOMotorDatabase`
 
 
 async def auth_required(
     request: Request,
-    session: AsyncSession = Depends(get_session)
+    db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     auth_header = request.headers.get("Authorization")
 
@@ -18,39 +17,38 @@ async def auth_required(
     token = auth_header.split(" ")[1]
     payload = decode_jwt(token)
 
-    if not payload:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Token invalid or expired")
+    if not payload or "user_id" not in payload:
+        raise HTTPException(status_code=403, detail="Token invalid or expired")
 
-    result = await session.exec(select(User).where(User.id == payload["user_id"]))
-    user = result.one_or_none()
+    user = await db["users"].find_one({"_id": ObjectId(payload["user_id"])})
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # print(f"Authenticated user: {user}")
+    
     request.state.user = user  # Optional: store for later use
     return user
 
 
-
-async def websocket_auth(websocket: WebSocket, session: AsyncSession):
+async def websocket_auth(websocket: WebSocket, db: AsyncIOMotorDatabase = Depends(get_database)):
     # Extract token from query parameters
     token = websocket.query_params.get("token")
-    
-    print (f"WebSocket token: {token}")
+    print(f"WebSocket token: {token}")
+
     if not token:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return None
 
     payload = decode_jwt(token)
-    if not payload:
+    if not payload or "user_id" not in payload:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return None
 
-    result = await session.exec(select(User).where(User.id == payload["user_id"]))
-    user = result.one_or_none()
+    user = await db["users"].find_one({"_id": ObjectId(payload["user_id"])})
 
     if not user:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return None
-    
+
     return user

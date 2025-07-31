@@ -1,32 +1,34 @@
-from sqlmodel import SQLModel
-from typing import AsyncGenerator
-from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+# db.py
+from motor.motor_asyncio import AsyncIOMotorClient,AsyncIOMotorDatabase
 from dotenv import load_dotenv
 import os
-import ssl
 
 load_dotenv()
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-ENVIRONMENT = os.environ.get("ENVIRONMENT")
+MONGODB_URL = os.environ.get("MONGODB_URL") or "mongodb://localhost:27017"
+MONGODB_DB_NAME = os.environ.get("MONGO_DB_NAME", "Career_AI_db")
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "Development")
 
-print(f"Connecting to database at {DATABASE_URL}")
+print(f"Connecting to MongoDB at {MONGODB_URL}")
 print(f"Environment is set to {ENVIRONMENT}")
 
-print(DATABASE_URL)
+client: AsyncIOMotorClient = AsyncIOMotorClient(MONGODB_URL, uuidRepresentation="standard")
+db:AsyncIOMotorDatabase = client[MONGODB_DB_NAME]
 
-engine = create_async_engine(DATABASE_URL, echo = ENVIRONMENT == "Development")
+# Optionally, define collection accessors if needed
+internship_collection = db["internships"]
+resume_collection = db["resumes"]
 
 
-SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+# Dependency for FastAPI
+def get_database() -> AsyncIOMotorDatabase:
+    return db
 
-
-# 👇 Add this function
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    async with SessionLocal() as session:
-        yield session
-
+# Async init placeholder for future (if needed)
 async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
+    print("MongoDB client initialized.")
+
+
+if __name__ == "__main__":
+    init_db()
+    print("MongoDB connection established.")

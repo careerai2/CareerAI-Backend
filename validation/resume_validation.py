@@ -77,5 +77,4 @@ class ResumeModel(BaseModel):
     positions_of_responsibility: Optional[List[PositionOfResponsibility]]
     internships: Optional[List[Internship]]
     extra_curriculars: Optional[List[ExtraCurricular]]
-
-
+    

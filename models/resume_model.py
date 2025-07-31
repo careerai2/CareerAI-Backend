@@ -12,74 +12,71 @@ class PyObjectId(ObjectId):
 
     @classmethod
     def validate(cls, v):
-        return str(v)
+        if isinstance(v, ObjectId):
+            return str(v)
+        try:
+            return str(ObjectId(v))
+        except Exception:
+            raise ValueError("Invalid ObjectId")
 
 
 # ------------------- Nested Structures ------------------------
-
 class Project(BaseModel):
-    project_name: str
-    project_description: str
-    description_bullets: List[str] = Field(default_factory=list)
-
+    project_name: Optional[str] = None
+    project_description: Optional[str] = None
+    description_bullets: Optional[List[str]] = Field(default_factory=list)
 
 class WorkExperience(BaseModel):
-    company_name: str
-    company_description: str
+    company_name: Optional[str] = None
+    company_description: Optional[str] = None
     location: Optional[str] = None
     duration: Optional[str] = None
-    designation: str
-    designation_description: str
-    projects: List[Project] = Field(default_factory=list)
-
+    designation: Optional[str] = None
+    designation_description: Optional[str] = None
+    projects: Optional[List[Project]] = Field(default_factory=list)
 
 class Internship(BaseModel):
-    company_name: str
-    company_description: str
+    company_name: Optional[str] = None
+    company_description: Optional[str] = None
     location: Optional[str] = None
-    designation: str
-    designation_description: str
-    duration: str
-    internship_work_description_bullets: List[str] = Field(default_factory=list)
-
+    designation: Optional[str] = None
+    designation_description: Optional[str] = None
+    duration: Optional[str] = None
+    internship_work_description_bullets: Optional[List[str]] = Field(default_factory=list)
 
 class Education(BaseModel):
-    college: str
-    degree: str
-    start_year: int
-    end_year: int
-    cgpa: float
-
+    college: Optional[str] = None
+    degree: Optional[str] = None
+    start_year: Optional[int] = None
+    end_year: Optional[int] = None
+    cgpa: Optional[float] = None
 
 class ScholasticAchievement(BaseModel):
-    title: str
+    title: Optional[str] = None
     awarding_body: Optional[str] = None
     year: Optional[int] = None
     description: Optional[str] = None
 
-
 class PositionOfResponsibility(BaseModel):
-    role: str
-    role_description: str
-    organization: str
-    organization_description: str
+    role: Optional[str] = None
+    role_description: Optional[str] = None
+    organization: Optional[str] = None
+    organization_description: Optional[str] = None
     location: Optional[str] = None
-    duration: str
-    responsibilities: List[str] = Field(default_factory=list)
-
+    duration: Optional[str] = None
+    responsibilities: Optional[List[str]] = Field(default_factory=list)
 
 class ExtraCurricular(BaseModel):
-    activity: str
+    activity: Optional[str] = None
     position: Optional[str] = None
     description: Optional[str] = None
     year: Optional[int] = None
-
 
 class ResumeInput(BaseModel):
     input_text: Optional[str] = None
     audio_file: Optional[str] = None
     transcribed_text: Optional[str] = None
-    submitted_at: datetime = Field(default_factory=datetime.utcnow)
+    submitted_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
 
 
 # ------------------- Main Resume Document ------------------------
@@ -92,6 +89,10 @@ class ResumeDocument(BaseModel):
     summary: Optional[str] = None
     skills: List[str] = Field(default_factory=list)
     languages: List[str] = Field(default_factory=list)
+    
+    name: Optional[str] = None  # Reference to user collection
+    email: Optional[EmailStr] = None
+    phone_number: Optional[str] = None
 
     title: Optional[str] = None
     template: Optional[str] = None
@@ -122,4 +123,26 @@ class ResumeDocument(BaseModel):
     class Config:
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
-        allow_population_by_field_name = True
+        validate_by_name = True
+
+
+# ------------------- LLM Schema for Resume Generation ------------------------
+class ResumeLLMSchema(BaseModel):
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    name: Optional[str] = None  # Reference to user collection
+    email: Optional[EmailStr] = None
+    phone_number: Optional[str] = None
+    skills: List[str] = []
+    languages: List[str] = []
+    external_links: List[str] = []
+    resume_inputs: List[ResumeInput] = []
+    education_entries: List[Education] = []
+    work_experiences: List[WorkExperience] = []
+    internships: List[Internship] = []
+    achievements: List[ScholasticAchievement] = []
+    positions_of_responsibility: List[PositionOfResponsibility] = []
+    extra_curriculars: List[ExtraCurricular] = []
+
+    class Config:
+        arbitrary_types_allowed = True

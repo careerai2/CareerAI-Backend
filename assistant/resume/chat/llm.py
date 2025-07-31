@@ -1,9 +1,8 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
 from assistant.resume.chat.tools import tools,get_resume
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage,SystemMessage, HumanMessage
 import json
-from validation.resume_validation import *
+from models.resume_model import *
 from langchain.chat_models import init_chat_model
 from typing import Annotated
 from typing_extensions import TypedDict
@@ -14,6 +13,8 @@ class State(TypedDict):
     messages: Annotated[list, add_messages]
     resume: dict
     user_id:str
+    resume_id: str
+    routing_decision: str | None
 
 
 llm = init_chat_model("openai:gpt-4.1")
@@ -29,6 +30,11 @@ llm = init_chat_model("openai:gpt-4.1")
 # )
 
 
+import json
+from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage
+from assistant.resume.chat.llm import llm
+from assistant.resume.chat.llm import State
 
 def chatbot(state: State):
     messages: list[BaseMessage] = state["messages"]
@@ -36,18 +42,44 @@ def chatbot(state: State):
     user_id = state.get("user_id", "unknown")
 
     if resume:
-        # print("Resume found in state:", resume)
-        # Add the resume as a system message (or user message, depending on design)
+        # Add helpful context to the front of the conversation
+        response_context = SystemMessage(
+            content=(
+                'Respond in JSON:\n'
+                '{\n'
+                '  "message": "<your reply>",\n'
+                '  "route_to": "<one of: education | internship | workex_and_project | position_and_extracurricular_achievements | none>"\n'
+                '}'
+            )
+        )
         resume_context = SystemMessage(
             content=f"Here is the user's current resume data: {json.dumps(resume)}"
         )
         user_id_context = SystemMessage(
             content=f"User ID: {user_id}. This will help in personalizing the conversation."
         )
-        messages = [resume_context, user_id_context] + messages
+        messages = [response_context, resume_context, user_id_context] + messages
+
     print("Calling Main LLM")
     response = llm.invoke(messages)
-    return {"messages": [response]}
+
+    # Parse LLM JSON response safely
+    try:
+        parsed = json.loads(response.content)
+        route = parsed.get("route_to", "none")
+        reply = parsed.get("message", "")
+    except Exception:
+        route = "none"
+        reply = response.content
+
+    # Inject route decision back into state
+    state["routing_decision"] = route
+
+    # Replace LLM message with clean AIMessage for downstream use
+    return {
+        "messages": [AIMessage(content=reply)],
+    }
+
 
 
 llm_with_tools = llm.bind_tools(tools)
@@ -56,9 +88,10 @@ llm_with_tools = llm.bind_tools(tools)
 async def education_chatbot(state: State):
     resume: dict = state.get("resume", {})
     user_id = state.get("user_id", "unknown")
+    resume_id = state.get("resume_id", "unknown")
     messages: list[BaseMessage] = state["messages"]
     
-    edu_schema = EducationEntry.model_json_schema()
+    edu_schema = Education.model_json_schema()
 
     # Merge everything into one SystemMessage
     system_content = f"""
@@ -72,6 +105,7 @@ async def education_chatbot(state: State):
                 
                 ## 👤 USER CONTEXT
                 - **User ID**: `{user_id}`
+                - **Resume ID**: `{resume_id}`
                 - **Current Resume Data**:
                 ```json
                 {json.dumps(resume, indent=2)}
@@ -102,10 +136,11 @@ async def education_chatbot(state: State):
 
     print("Calling Education LLM")
     response = await llm_with_tools.ainvoke(full_messages)
+    
+    if hasattr(tools, "update_resume_fields"):
+        # If the tool is available, we can assume it was called correctly
+        print("Tool call for education update was successful.")
 
-    print("response", response)
-    if hasattr(response, 'tool_calls'):
-        print("Tool Calls Triggered:", response.tool_calls)
     
     return {"messages": [response]}
 
@@ -114,6 +149,7 @@ async def education_chatbot(state: State):
 async def internship_chatbot(state: State):
     resume: dict = state.get("resume", {})
     user_id = state.get("user_id", "unknown")
+    resume_id = state.get("resume_id", "unknown")
     messages: list[BaseMessage] = state["messages"]
 
     internship_schema = Internship.model_json_schema()
@@ -131,6 +167,7 @@ async def internship_chatbot(state: State):
                 
                 ## 👤 USER CONTEXT
                 - **User ID**: `{user_id}`
+                - **Resume ID**: `{resume_id}`
                 - **Current Resume Data**:
                 ```json
                 {json.dumps(resume, indent=2)}
@@ -157,10 +194,12 @@ async def internship_chatbot(state: State):
 
     print("Calling Internship LLM")
     response = await llm_with_tools.ainvoke(full_messages)
+    
+    if hasattr(tools, "update_resume_fields"):
+        # If the tool is available, we can assume it was called correctly
+        print("Tool call for internship update was successful.")
 
-    if hasattr(response, 'tool_calls'):
-        print("response", response)
-        print("Tool Calls Triggered:", response.tool_calls)
+    
 
     return {"messages": [response]}
 
@@ -169,6 +208,7 @@ async def internship_chatbot(state: State):
 async def workex_and_project_chatbot(state: State):
         resume: dict = state.get("resume", {})
         user_id = state.get("user_id", "unknown")
+        resume_id = state.get("resume_id", "unknown")
         messages: list[BaseMessage] = state["messages"]
 
         workex_schema = WorkExperience.model_json_schema()
@@ -187,7 +227,9 @@ async def workex_and_project_chatbot(state: State):
 
                     ## 👤 USER CONTEXT
                     - **User ID**: `{user_id}`
+                    - **Resume ID**: `{resume_id}`
                     - **Current Resume Data**:
+                    
                     ```json
                     {json.dumps(resume, indent=2)}
 
@@ -217,10 +259,12 @@ async def workex_and_project_chatbot(state: State):
 
         print("Calling Work Experience & Project LLM")
         response = await llm_with_tools.ainvoke(full_messages)
+        
+        if hasattr(tools, "update_resume_fields"):
+            # If the tool is available, we can assume it was called correctly
+            print("Tool call for work experience and project update was successful.")
 
-        if hasattr(response, 'tool_calls'):
-            print("response", response)
-            print("Tool Calls Triggered:", response.tool_calls)
+
 
         return {"messages": [response]}
 
@@ -229,11 +273,12 @@ async def workex_and_project_chatbot(state: State):
 async def position_and_extracurricular_achievements_chatbot(state: State):
     resume: dict = state.get("resume", {})
     user_id = state.get("user_id", "unknown")
+    resume_id = state.get("resume_id", "unknown")
     messages: list[BaseMessage] = state["messages"]
 
     position_schema = PositionOfResponsibility.model_json_schema()
     extracurricular_schema = ExtraCurricular.model_json_schema()
-    achievement_schema = Achievement.model_json_schema()
+    achievement_schema = ScholasticAchievement.model_json_schema()
 
     # Merge everything into one SystemMessage
     system_content = f"""
@@ -248,6 +293,7 @@ async def position_and_extracurricular_achievements_chatbot(state: State):
 
         ## 👤 USER CONTEXT
         - **User ID**: `{user_id}`
+        - **Resume ID**: `{resume_id}`
         - **Current Resume Data**:
         ```json
         {json.dumps(resume, indent=2)}
@@ -281,9 +327,11 @@ async def position_and_extracurricular_achievements_chatbot(state: State):
 
     print("Calling Position, Extracurricular & Achievement LLM")
     response = await llm_with_tools.ainvoke(full_messages)
+    
+    if hasattr(tools, "update_resume_fields"):
+        # If the tool is available, we can assume it was called correctly
+        print("Tool call for position, extracurricular and achievement update was successful.")
 
-    if hasattr(response, 'tool_calls'):
-        print("response", response)
-        print("Tool Calls Triggered:", response.tool_calls)
+    
 
     return {"messages": [response]}

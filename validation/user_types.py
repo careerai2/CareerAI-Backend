@@ -7,7 +7,7 @@ from typing import Optional
 
 class UserSignup(BaseModel):
     email:str
-    name: Optional[str] = "keshav raj"
+    username: Optional[str]
     phone_number: Optional[str] = None
     password: str
     # intro: Optional[str] = None

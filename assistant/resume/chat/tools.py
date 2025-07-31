@@ -1,6 +1,6 @@
 
 from langchain.tools import tool
-from assistant.config import redis_client as r
+from redis_config import redis_client as r
 from pydantic import BaseModel, field_validator
 from validation.resume_validation import ResumeModel
 from websocket_manger import ConnectionManager
@@ -9,24 +9,26 @@ import json
 
 
 
-def get_resume(user_id: str) -> dict:
+
+def get_resume(user_id: str, resume_id: str) -> dict:
     """Fetch the resume for a specific user.
 
     Args:
         user_id (str): The ID of the user whose resume is to be fetched.
+        resume_id (str): The ID of the resume to fetch.
 
     Returns:
         dict: The resume data for the user, or an empty dict if not found.
     """
-    data = r.get(f"user_resume:{user_id}")
+    data = r.get(f"resume:{user_id}:{resume_id}")
     return json.loads(data) if data else {}
 
 
 
-def update_resume(user_id: str, resume_data: dict):
-    key = f"user_resume:{user_id}"
+def update_resume(user_id: str, resume_id: str, resume_data: dict):
+    key = f"resume:{user_id}:{resume_id}"
     r.set(key, json.dumps(resume_data))
-    print(f"Resume updated for user {user_id}")
+    print(f"Resume updated for user {user_id}, resume {resume_id}")
 
 
 def deep_update(target: dict, updates: dict) -> dict:
@@ -57,6 +59,7 @@ async def send_patch_to_frontend(user_id: str, patch: list[dict]):
 
 class ResumeUpdateInput(BaseModel):
     user_id: str
+    resume_id: str
     updates: dict
 
     @field_validator("updates", mode="before")
@@ -89,6 +92,7 @@ async def update_resume_fields(input: ResumeUpdateInput) -> None:
     ## 🧾 Args
     - `input` (`ResumeUpdateInput`): An object containing:
         - `user_id` (`str`): The ID of the user whose resume is being updated.
+        - `resume_id` (`str`): The ID of the resume being updated.
         - `updates` (`dict`): A dictionary of field-level updates.
 
     ## 📤 Returns
@@ -105,11 +109,11 @@ async def update_resume_fields(input: ResumeUpdateInput) -> None:
 
         print(f"Received update request for user {input.user_id}: {input}")
         # ResumeModel(**input.updates)  # Validate the updates against the ResumeModel
-        old_resume = get_resume(input.user_id)
+        old_resume = get_resume(input.user_id, input.resume_id)
         new_resume = deep_update(old_resume.copy(), input.updates)
 
         # Update resume in Redis
-        update_resume(input.user_id, new_resume)
+        update_resume(input.user_id, input.resume_id, new_resume)
 
         # Generate JSON patch
         patch = jsonpatch.make_patch(old_resume, new_resume).patch

@@ -6,14 +6,13 @@ from assistant.resume.chat.tools import tools,get_resume
 from assistant.resume.chat.llm import State,llm
 from langgraph.prebuilt import ToolNode,tools_condition
 from assistant.resume.chat.llm import chatbot,education_chatbot,internship_chatbot,workex_and_project_chatbot,position_and_extracurricular_achievements_chatbot
-from assistant.config import redis_client as r
-import json
+from redis_config import redis_client as r
+from functools import wraps
+from langgraph.checkpoint.redis import RedisSaver,AsyncRedisSaver
 import re
+from utils.convert_objectIds import convert_objectids
 
 
-
-memory = InMemorySaver()
-# from langgraph.checkpoint.redis import RedisSaver,AsyncRedisSaver
 
 
 
@@ -22,7 +21,11 @@ def detect_section(text: str) -> str:
     Lightweight and reliable section classifier using regex for MVP.
     Supports: education, internship, workex_and_project, position_and_extracurricular_achievements
     """
+    print(f"[DEBUG] Section detection input: {text}")
+    
     text = text.lower()
+    
+
 
     section_patterns = {
         "education": [
@@ -74,6 +77,22 @@ def chatbot_router(state: State) -> str:
 
 
 
+# def chatbot_router(state: State) -> str:
+#     decision = state.get("routing_decision", "none")
+
+#     route_map = {
+#         "education": "education_chatbot",
+#         "internship": "internship_chatbot",
+#         "workex_and_project": "workex_and_project_chatbot",
+#         "position_and_extracurricular_achievements": "position_and_extracurricular_achievements_chatbot",
+#         "none": END
+#     }
+
+#     print(f"[ROUTER] Chatbot Decision: {decision} → Routing to: {route_map.get(decision, END)}")
+#     return route_map.get(decision, END)
+
+
+
 
 def return_to_last_section(state: State) -> str:
     return {
@@ -115,16 +134,42 @@ graph_builder.add_conditional_edges("tools", return_to_last_section)
 graph_builder.add_edge(START, "chatbot")
 
 
-graph = graph_builder.compile(checkpointer=memory)
+# memory = InMemorySaver()
+# graph = graph_builder.compile(checkpointer=memory)
+
+REDIS_URI = "redis://localhost:6379"
+graph = None
+def with_redis_saver(func):
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        # Create Redis checkpointer for this invocation
+        async with AsyncRedisSaver.from_conn_string(REDIS_URI) as checkpointer:
+            # Setup indexes (not awaited because setup() is sync)
+            checkpointer.setup()  
+
+            # Compile graph with checkpointing
+            print("Compiling graph with Redis checkpointer...")
+            global graph
+            graph = graph_builder.compile(checkpointer=checkpointer)
+
+            # Pass checkpointer to the wrapped function if needed
+            kwargs["checkpointer"] = checkpointer
+            return await func(*args, **kwargs)
+    return wrapper
 
 
-async def stream_graph_to_websocket(user_input: str, thread_id: str, websocket: WebSocket, user_id: str):
+
+
+@with_redis_saver
+async def stream_graph_to_websocket(user_input: str,resume_id:str,websocket: WebSocket, user_id: str,checkpointer: AsyncRedisSaver = None):
     """
     Streams LangGraph outputs to the client via WebSocket.
     """
     # checkpointer = await AsyncRedisSaver.from_conn_string(REDIS_URI)
+    
+    
 
-    config = {"configurable": {"thread_id": thread_id}}  # to add checkpointing support
+    config = {"configurable": {"thread_id": f"{user_id}:{resume_id}"}}  # to add checkpointing support
 
     initial_state = {
     "messages": [
@@ -160,13 +205,16 @@ async def stream_graph_to_websocket(user_input: str, thread_id: str, websocket: 
     )),
         HumanMessage(content=user_input)
     ],
-    "resume": get_resume(user_id),
-    "user_id": user_id
+    "resume": convert_objectids(get_resume(user_id,resume_id)),
+    "user_id": str(user_id),
+    "resume_id":str(resume_id)
+    
 }
-
-
-
-
+    if not graph:
+        # graph = graph_builder.compile(checkpointer=checkpointer)
+        print("Graph is not compiled yet, compiling now...")
+        return END
+    
     async for event in graph.astream(initial_state, config=config):
         for value in event.values():
             content = value["messages"][-1].content
