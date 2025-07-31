@@ -9,12 +9,14 @@ __pycache__/
 env/
 env*
 venv/
+1/
 
 # OS / IDE files
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+
 
 # Git
 .git
