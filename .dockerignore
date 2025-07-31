@@ -1,4 +1,35 @@
+# Python
 __pycache__/
 *.pyc
-Dockerfile
-.dockerignore
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+env/
+env*
+venv/
+
+# OS / IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Git
+.git
+.gitignore
+
+# Cache / logs
+*.log
+*.sqlite3
+*.db
+*.cache
+*.egg-info/
+dist/
+build/
+
+# Local env files (we use docker-compose instead)
+.env
+.env.*
+!*.env.production
