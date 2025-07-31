@@ -5,7 +5,7 @@ __pycache__/
 *.py[cod]
 *.sqlite3
 *.log
-.central_cache/
+.central_cache/*
 .pycache/
 1
 

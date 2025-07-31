@@ -12,7 +12,7 @@ venv/
 
 # cache directories
 1/
-central_cache
+central_cache/*
 
 # OS / IDE files
 .DS_Store

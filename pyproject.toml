@@ -14,7 +14,7 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "sqlmodel",
-    "passlib",
+    "passlib[bcrypt]",
     "pyjwt",
     "email-validator",
     "websockets",
@@ -24,7 +24,7 @@ dependencies = [
     "langgraph",
     "langgraph-checkpoint-redis",
     "redisvl",
-    "bcrypt>=4.3.0",
+    "bcrypt<4.1",
 ]
 
 [tool.uv]

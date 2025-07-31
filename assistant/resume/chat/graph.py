@@ -56,6 +56,7 @@ def detect_section(text: str) -> str:
 
     return "default"
 
+
 def chatbot_router(state: State) -> str:
     try:
         last_message = state["messages"][-1].content
