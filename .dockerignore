@@ -9,7 +9,10 @@ __pycache__/
 env/
 env*
 venv/
+
+# cache directories
 1/
+central_cache
 
 # OS / IDE files
 .DS_Store
@@ -21,6 +24,7 @@ Thumbs.db
 # Git
 .git
 .gitignore
+.github/*
 
 # Cache / logs
 *.log
