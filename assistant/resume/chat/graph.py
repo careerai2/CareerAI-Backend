@@ -1,3 +1,4 @@
+import os
 from fastapi import WebSocket
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import BaseMessage,SystemMessage, HumanMessage
@@ -138,7 +139,7 @@ graph_builder.add_edge(START, "chatbot")
 # memory = InMemorySaver()
 # graph = graph_builder.compile(checkpointer=memory)
 
-REDIS_URI = "redis://localhost:6379"
+REDIS_URI = os.environ.get('REDIS_URL', 'redis://localhost:6379')
 graph = None
 def with_redis_saver(func):
     @wraps(func)
