@@ -10,9 +10,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Annotated
 import os
 from db import get_database
-from assistant.resume.chat.graph import stream_graph_to_websocket
+from assistant.resume.chat.swarm import stream_graph_to_websocket
 from app_instance import app
 from bson import ObjectId
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
 
 
 app.add_middleware(
@@ -61,38 +66,32 @@ app.include_router(user_router,dependencies=[Depends(AuthMiddleware)])
 
 
 
-
 @app.websocket("/resume-chat-ws/{resume_id}")
 async def resume_chat_ws(websocket: WebSocket, resume_id: str):
-    
-    print(f"WebSocket connection request for resume {resume_id}")
     db = get_database()
     user = await websocket_auth(websocket, db)
-
     if not user:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # Verify resume_id belongs to this user
     resume = await db["resumes"].find_one({"_id": ObjectId(resume_id), "user_id": user["_id"]})
     if not resume:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    print(f"User {user['_id']} connected to resume {resume_id}")
-    manager = app.state.connection_manager
-    await manager.connect(websocket)
+    await app.state.connection_manager.connect(websocket)
+    thread_id = f"{user['_id']}:{resume_id}"  # Unique thread for this chat session
 
+    first_message = True
     try:
         while True:
             user_input = await websocket.receive_text()
             await stream_graph_to_websocket(
                 user_input=user_input,
                 websocket=websocket,
-                user_id=user["_id"],
-                resume_id=resume_id
+                user_id=str(user["_id"]),
+                resume_id=resume_id,
             )
     except WebSocketDisconnect:
         print(f"User {user['_id']} disconnected")
-    finally:
-        manager.active_connections.pop(user["_id"], None)
+        app.state.connection_manager.active_connections.pop(user["_id"], None)

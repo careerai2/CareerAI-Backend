@@ -24,7 +24,17 @@ User's input: {user_input}
 )
 
 
-llm = init_chat_model("openai:gpt-4.1")
+# llm = init_chat_model("openai:gpt-4.1")
+
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+# Create a Gemini Flash instance
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",  # Use gemini-1.5-pro for higher reasoning
+    temperature=0,             # Optional: control creativity
+    max_output_tokens=1024     # Optional: control output length
+)
 
 chain= prompt | llm | output_parser 
 

@@ -88,11 +88,13 @@ class ResumeDocument(BaseModel):
     resume_data: Optional[str] = None
     summary: Optional[str] = None
     skills: List[str] = Field(default_factory=list)
+    intrests: List[str] = Field(default_factory=list)
     languages: List[str] = Field(default_factory=list)
     
     name: Optional[str] = None  # Reference to user collection
     email: Optional[EmailStr] = None
     phone_number: Optional[str] = None
+    tailoring_keys: List[str] = Field(default_factory=list)
 
     title: Optional[str] = None
     template: Optional[str] = None
