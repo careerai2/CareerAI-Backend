@@ -94,7 +94,7 @@ class ResumeDocument(BaseModel):
     name: Optional[str] = None  # Reference to user collection
     email: Optional[EmailStr] = None
     phone_number: Optional[str] = None
-    tailoring_keys: List[str] = Field(default_factory=list)
+    tailoring_keys: List[str] = Field(default=["Consulting"])
 
     title: Optional[str] = None
     template: Optional[str] = None
@@ -135,6 +135,7 @@ class ResumeLLMSchema(BaseModel):
     name: Optional[str] = None  # Reference to user collection
     email: Optional[EmailStr] = None
     phone_number: Optional[str] = None
+    tailoring_keys: List[str] = []
     skills: List[str] = []
     languages: List[str] = []
     external_links: List[str] = []

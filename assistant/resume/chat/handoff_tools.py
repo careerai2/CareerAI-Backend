@@ -21,6 +21,29 @@ transfer_to_internship_agent = create_handoff_tool(
     description="Transfer user to the internship assistant to collect internship details and manage it in resume."
 )
 
+transfer_to_workex_agent = create_handoff_tool(
+    agent_name="workex_assistant",
+    description="Transfer user to the work experience assistant to collect work experience details and manage it in resume."
+)
+
+transfer_to_por_agent = create_handoff_tool(
+    agent_name="Position_of_responsibility_assistant",
+    description="Transfer user to the Position of Responsibility assistant to collect Position of Responsibility details and manage it in resume."
+)
+
+
+transfer_to_scholastic_achievement_agent = create_handoff_tool(
+    agent_name="scholastic_achievement_assistant",
+    description="Transfer user to the scholastic achievement assistant to collect scholastic achievement details and manage it in resume."
+)
+
+
+transfer_to_extra_curricular_agent = create_handoff_tool(
+    agent_name="extra_curricular_assistant",
+    description="Transfer user to the extra-curricular assistant to collect extra-curricular details and manage it in resume."
+)
+
+
 
 # # Code for custome handoff tool
 # def create_custom_handoff_tool(*, agent_name: str, name: str | None, description: str | None) -> BaseTool:

@@ -14,6 +14,7 @@ from assistant.resume.chat.swarm import stream_graph_to_websocket
 from app_instance import app
 from bson import ObjectId
 import logging
+from assistant.resume.chat.utils.common_tools import get_tailoring_keys 
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -80,9 +81,8 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str):
         return
 
     await app.state.connection_manager.connect(websocket)
-    thread_id = f"{user['_id']}:{resume_id}"  # Unique thread for this chat session
-
-    first_message = True
+    tailoring_keys = get_tailoring_keys(str(user["_id"]), resume_id) or resume.get("tailoring_keys", [])
+    # print(f"User {user['_id']} connected to resume {resume_id} with tailoring keys: {tailoring_keys}")
     try:
         while True:
             user_input = await websocket.receive_text()
@@ -91,6 +91,7 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str):
                 websocket=websocket,
                 user_id=str(user["_id"]),
                 resume_id=resume_id,
+                tailoring_keys=tailoring_keys
             )
     except WebSocketDisconnect:
         print(f"User {user['_id']} disconnected")
