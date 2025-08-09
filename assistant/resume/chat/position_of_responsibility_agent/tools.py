@@ -10,7 +10,7 @@ from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
 from ..handoff_tools import *
-
+from ..utils.update_summar_skills import update_summary_and_skills
 
 class PositionOfResponsibilityToolInput(BaseModel):
     type: Literal["add", "update", "delete"] = "add"  # Default operation
@@ -92,13 +92,29 @@ async def position_of_responsibility_tool(
                     new_resume['positions_of_responsibility'][index][k] = v
             else:
                 raise IndexError("Index out of range for position of responsibility entries.")
+        
+        
+        if new_resume.get("total_updates", 0) > 5:
+            updated_service = await update_summary_and_skills(new_resume, new_resume.get("tailoring_keys", []))
 
+            if updated_service is not None:
+                if updated_service.summary:
+                    new_resume["summary"] = updated_service.summary
+                if updated_service.skills and 0 < len(updated_service.skills) <= 10:
+                    new_resume["skills"] = updated_service.skills
+                new_resume["total_updates"] = 0
+        else:
+            new_resume["total_updates"] = new_resume.get("total_updates", 0) + 1
+            
+            
         # ---- Save & Notify ----
         save_resume(user_id, resume_id, new_resume)
 
         await send_patch_to_frontend(user_id, new_resume)
 
         print(f"✅ Position Of Responsibility section updated for {user_id}")
+        
+        return new_resume
 
     except Exception as e:
         print(f"❌ Error updating position of responsibility for user {user_id}: {e}")

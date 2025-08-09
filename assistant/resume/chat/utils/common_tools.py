@@ -3,7 +3,7 @@ from websocket_manger import ConnectionManager
 from app_instance import app
 import json
 from models.resume_model import *
-
+from ..llm_model import llm
 
 
 
@@ -61,10 +61,8 @@ async def send_patch_to_frontend(user_id: str, resume: ResumeLLMSchema):
     if manager.active_connections.get(str(user_id)):
         try:
             await manager.send_json_to_user(user_id, {"type":"resume_update","resume": resume})
-            print(f"New resume sent to user {user_id}")
+            # print(f"New resume sent to user {user_id}")
         except Exception as e:
             print(f"Failed to send patch to frontend for user {user_id}: {e}")
     else:
         print(f"No WebSocket connection found for user {user_id}")
-
-

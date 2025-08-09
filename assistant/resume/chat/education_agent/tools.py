@@ -9,7 +9,8 @@ import json
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
-
+from ..utils.update_summar_skills import update_summary_and_skills
+from ..handoff_tools import *
 
 
 
@@ -55,8 +56,6 @@ async def education_Tool(
         user_id = config["configurable"].get("user_id")
         resume_id = config["configurable"].get("resume_id")
 
-        print(f"Config: {config}")
-
         if not user_id or not resume_id:
             raise ValueError("Missing user_id or resume_id in context.")
 
@@ -65,12 +64,6 @@ async def education_Tool(
             raise ValueError("Missing 'updates' for add/update operation.")
         if type in ["update", "delete"] and index is None:
             raise ValueError("Index is required for add/update/delete operation.")
-
-        print({
-            "updates": updates,
-            "type": type,
-            "index": index
-        })
 
 
         
@@ -104,12 +97,27 @@ async def education_Tool(
                     new_resume['education_entries'][index][k] = v
             else:
                 raise IndexError("Index out of range for education entries.")
+            
+
+        if new_resume.get("total_updates", 0) > 5:
+            updated_service = await update_summary_and_skills(new_resume, new_resume.get("tailoring_keys", []))
+
+            if updated_service is not None:
+                if updated_service.summary:
+                    new_resume["summary"] = updated_service.summary
+                if updated_service.skills and 0 < len(updated_service.skills) <= 10:
+                    new_resume["skills"] = updated_service.skills
+                new_resume["total_updates"] = 0
+        else:
+            new_resume["total_updates"] = new_resume.get("total_updates", 0) + 1
 
         # ---- Save & Notify ----
         save_resume(user_id, resume_id, new_resume)
         await send_patch_to_frontend(user_id, new_resume)
 
         print(f"✅ Education section updated for {user_id}")
+        
+        return new_resume
 
     except Exception as e:
         print(f"❌ Error updating resume for user: {e}")
@@ -117,7 +125,12 @@ async def education_Tool(
 
 
 
-tools_education = [get_resume, education_Tool]
+
+tools = [education_Tool, transfer_to_main_agent, transfer_to_por_agent,
+         transfer_to_workex_agent, transfer_to_internship_agent
+         ,transfer_to_scholastic_achievement_agent,transfer_to_extra_curricular_agent]
+
+
 
 
 

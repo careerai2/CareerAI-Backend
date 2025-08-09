@@ -16,7 +16,7 @@ from models.resume_model import Internship
 # 1. Define State
 # ---------------------------
 
-class InternshipState(TypedDict):
+class SwarmResumeState(TypedDict):
     user_id: str
     resume_id: str
     messages: Annotated[list, add_messages]  # All conversation messages
@@ -38,8 +38,9 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     resume_id = config["configurable"].get("resume_id")
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
     
-    print(f"[Internship Agent] Handling user {user_id} for resume {resume_id} with tailoring keys {tailoring_keys}")
+    # print(f"[Internship Agent] Handling user {user_id} for resume {resume_id} with tailoring keys {tailoring_keys}")
     
+    latest_entries = state.get("resume_schema", {}).get("internships", [])
     # Eg: [Internship Agent] Handling user 688a1bfa90accd05bcc8eb7b for resume 6894c8ea3b357837e5def6cd 
     # with tailoring keys ['consult'] # can use this to tailor the responses by using in prompt
 
@@ -50,12 +51,18 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
 
         --- Responsibilities ---
         1. Collect and organize internship info (Company, Role, Duration, Location, Achievements).
-        2. Create or update entries using `internship_tool` in real time **don't forget to provide index**.
-        3. Ask one question at a time to fill missing details.
+        2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
+        3. Create or update entries using `internship_tool` in real time **don't forget to provide index**.
+        4. Ask one question at a time to fill missing details.
 
         Internship Schema Context:
         ```json
         { json.dumps(Internship.model_json_schema(), indent=2) }
+        ```
+        
+        Current Entries:
+        ```json
+        { json.dumps(latest_entries, indent=2) }
         ```
         """
     )
@@ -67,7 +74,7 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
 # 4. Conditional Routing
 # ---------------------------
 
-def should_continue(state: InternshipState):
+def should_continue(state: SwarmResumeState):
     last_message = state["messages"][-1]
     return "continue" if last_message.tool_calls else "end"
 
@@ -75,7 +82,7 @@ def should_continue(state: InternshipState):
 # 5. Create Graph
 # ---------------------------
 
-workflow = StateGraph(InternshipState)
+workflow = StateGraph(SwarmResumeState)
 
 # Add nodes
 workflow.add_node("internship_model", call_internship_model)

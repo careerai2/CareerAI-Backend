@@ -25,9 +25,11 @@ def call_model(state: SwarmResumeState, config: RunnableConfig):
     
     user_id = config["configurable"].get("user_id")
     resume_id = config["configurable"].get("resume_id")
-    print(f"Calling model for user {user_id} with resume {resume_id}")
-    
-    
+    tailoring_keys = config["configurable"].get("tailoring_keys", [])
+    print(f"Calling Main model for user {user_id} with resume {resume_id}")
+
+    latest_resume = state.get("resume_schema", {})
+
     system_prompt = SystemMessage(
             f"""
             You are the **Main Resume Assistant** in a multi-agent resume-building system.  
@@ -36,22 +38,29 @@ def call_model(state: SwarmResumeState, config: RunnableConfig):
 
             **Your Knowledge & Context:**  
             - The overall resume is represented by the `ResumeLLMSchema`, which has sections like:  
-            1.**You can handle toplevel fields like name, title, summary, email, and phone_number.Update in real time if data available**
-            2. **Education** → handled by Education Agent  
-            3. **Internships** → handled by Internship Agent  
-            4. **Work Experience** → handled by Work Experience Agent
-            5. **Extra Curriculars** → handled by Extra Curricular Agent  
-            6. **Positions of Responsibility** → handled by Positions of Responsibility Agent
-            7. **Scholastic Achievements** → handled by Scholastic Achievements Agent
-            8. **You should respond in short and concise sentences, don't ask a lot of questions in a single message.**.
+            1.**You can handle toplevel fields like name, title, summary, email, skills, and phone_number.Update in real time if data available**
+            2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
+            3. **For Skills, you can provide a list of skills relevant to the job.**
+            4. **Education** → handled by Education Agent  
+            5. **Internships** → handled by Internship Agent  
+            6. **Work Experience** → handled by Work Experience Agent
+            7. **Extra Curriculars** → handled by Extra Curricular Agent  
+            8. **Positions of Responsibility** → handled by Positions of Responsibility Agent
+            9. **Scholastic Achievements** → handled by Scholastic Achievements Agent
+            10. **You should respond in short and concise sentences, don't ask a lot of questions in a single message.**.
 
             **Resume Schema Context:**  
             ```json
             { json.dumps(ResumeLLMSchema.model_json_schema(), indent=2) }
             ```
+
+            **Latest Resume Context:**
+            ```json
+            { json.dumps(latest_resume, indent=2) }
+            ```
             """
     )
-    response = llm.invoke([system_prompt] + state["messages"], config)
+    response = llm.invoke([system_prompt] + state["messages"][-10:], config)
     return {"messages": [response]}
 
 def should_continue(state: SwarmResumeState):

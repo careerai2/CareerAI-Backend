@@ -8,7 +8,7 @@ from langgraph.graph.message import add_messages
 import json
 
 from ..handoff_tools import transfer_to_internship_agent, transfer_to_main_agent
-from .tools import education_Tool
+from .tools import tools
 from ..llm_model import llm,SwarmResumeState
 from models.resume_model import Education
 
@@ -17,15 +17,8 @@ from models.resume_model import Education
 # ---------------------------
 
 class EducationState(TypedDict):
-    user_id: str
-    resume_id: str
-    messages: Annotated[list, add_messages]  # Conversation messages
-
-# ---------------------------
-# 2. LLM with Tools
-# ---------------------------
-
-tools = [transfer_to_internship_agent, transfer_to_main_agent, education_Tool]
+    education_messages: Annotated[list, add_messages]
+    education_entries: list[Education]
 
 
 llm_education = llm.bind_tools(tools)
@@ -35,9 +28,14 @@ llm_education = llm.bind_tools(tools)
 # ---------------------------
 
 def call_education_model(state: SwarmResumeState, config: RunnableConfig):
-    user_id = state["user_id"]
-    resume_id = state["resume_id"]
-    print(f"[Education Agent] Handling user {user_id} for resume {resume_id}")
+
+
+
+    latest_education = state.get("resume_schema", {}).get("education_entries", [])
+    tailoring_keys = config["configurable"].get("tailoring_keys", [])
+    
+    # print(f"Latest Education Entries: {json.dumps(latest_education, indent=2)}")
+    
 
     system_prompt = SystemMessage(
         f"""
@@ -47,26 +45,33 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
         --- Responsibilities ---
         1. Guide user to provide Degree, Institute, Start & End Years.
         2. Encourage adding CGPA/Percentage and achievements.
-        3. Create or update entries using `education_tool` in real time **don't forget to provide index**.
-        4. Ask one question at a time to fill missing details.
-        5. If user asks about different section check ur tools or route them to that agent
-        6. If u didn't understand the request → call `transfer_to_main_agent`.
+        3. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
+        4. Create or update entries using `education_tool` in real time **don't forget to provide index**.
+        5. When adding new entry, first check if the entry already exists, Inform the user and ask if they want to update it even for bullet points.
+        6. Ask one question at a time to fill missing details.
+        7. If user asks about different section check ur tools or route them to that agent
+        8. If u didn't understand the request → call `transfer_to_main_agent`.
 
         Education Schema Context:
         ```json
         { json.dumps(Education.model_json_schema(), indent=2) }
         ```
+        Current Entries:
+        ```json
+        { json.dumps(latest_education, indent=2) }
+        ```
         """
     )
 
     response = llm_education.invoke([system_prompt] + state["messages"], config)
+    
     return {"messages": [response]}
 
 # ---------------------------
 # 4. Conditional Routing
 # ---------------------------
 
-def should_continue(state: EducationState):
+def should_continue(state: SwarmResumeState):
     last_message = state["messages"][-1]
     return "continue" if last_message.tool_calls else "end"
 
@@ -74,7 +79,7 @@ def should_continue(state: EducationState):
 # 5. Create Graph
 # ---------------------------
 
-workflow = StateGraph(EducationState)
+workflow = StateGraph(SwarmResumeState)
 
 # Add nodes
 workflow.add_node("education_model", call_education_model)

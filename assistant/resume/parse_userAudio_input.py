@@ -1,56 +1,63 @@
 from langchain.output_parsers import PydanticOutputParser
 from models.resume_model import ResumeLLMSchema
-from validation.new_resume_validation import ResumeRenderContext
 from langchain.prompts import PromptTemplate
-from langchain.chat_models import init_chat_model
+from langchain_google_genai import ChatGoogleGenerativeAI
 
-
+# Define the parser
 output_parser = PydanticOutputParser(pydantic_object=ResumeLLMSchema)
+
+# Create format instructions from the parser
+format_instructions = output_parser.get_format_instructions()
+
+# Updated strict prompt
 prompt = PromptTemplate(
     template="""
-Please generate a resume summary in JSON format. Try to extract the most relevant information from the user's input.
-The output should be a JSON object that matches the following format.
+You are given resume text from a user.  
+Your task is to extract **all possible details** and place them into the correct fields of the JSON schema provided.  
+This includes:
+- Education details (degree, branch, institute, years, CGPA)
+- Work and leadership experience
+- Skills and technologies
+- Achievements, awards, certifications
+- Extracurriculars
+- Languages
+- Contact information if present
 
-Use:
-- `null` for any missing **scalar fields** (like strings or numbers)
-- `[]` (empty arrays) for any missing **list fields** (like `skills`, `internships`, `education_entries`, etc.)
+**Rules:**
+- Use `null` for scalar fields if unknown.
+- Use `[]` for lists if empty.
+- Keep formatting EXACTLY as per the schema.
+- Do **not** include any extra text outside the JSON.
+- Do **not** wrap JSON in triple backticks.
+- Ensure all nested objects have the correct keys even if values are null/empty.
+- After extracting fields, generate a 2–4 sentence professional `summary` that captures the overall profile without repeating every detail.
 
 {format_instructions}
 
-User's input: {user_input}
-""".strip(),
+User's resume text:
+{user_input}
+""",
     input_variables=["user_input"],
-    partial_variables={"format_instructions": output_parser.get_format_instructions()}
+    partial_variables={"format_instructions": format_instructions}
 )
 
-
-# llm = init_chat_model("openai:gpt-4.1")
-
-
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-# Create a Gemini Flash instance
+# Gemini model
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",  # Use gemini-1.5-pro for higher reasoning
-    temperature=0,             # Optional: control creativity
-    max_output_tokens=1024     # Optional: control output length
+    model="gemini-2.5-flash",
+    temperature=0,
+    max_output_tokens=2048
 )
 
-chain= prompt | llm | output_parser 
+# Create chain
+chain = prompt | llm | output_parser
 
-async def parse_user_audio_input(user_input: str,user_id:str):
+async def parse_user_audio_input(user_input: str, user_id: str):
     """
-    Parses the user audio input to generate a resume summary.
-    
-    Args:
-        user_input (str): The user's audio input as text.
-        
-    Returns:
-        ResumeModel: Parsed resume summary.
+    Parses the user audio input to generate a structured resume JSON.
     """
     try:
         result = await chain.ainvoke({"user_input": user_input})
         return result
     except Exception as e:
-        print(f"Error in parsing user audio input: {e}")
+        print("LLM raw output caused error, check prompt and schema alignment.")
         raise e

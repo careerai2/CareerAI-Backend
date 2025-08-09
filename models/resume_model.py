@@ -136,6 +136,7 @@ class ResumeLLMSchema(BaseModel):
     email: Optional[EmailStr] = None
     phone_number: Optional[str] = None
     tailoring_keys: List[str] = []
+    total_updates: int = 0        # a flag number to check,that skills and Summary are updated # will check if it is 10 yes then update and set it 0 
     skills: List[str] = []
     languages: List[str] = []
     external_links: List[str] = []

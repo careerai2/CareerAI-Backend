@@ -35,8 +35,11 @@ def call_por_model(state: SwarmResumeState, config: RunnableConfig):
    
     user_id = config["configurable"].get("user_id")
     resume_id = config["configurable"].get("resume_id")
+    tailoring_keys = config["configurable"].get("tailoring_keys", [])
 
     print(f"[Position Of Responsibility Agent] Handling user {user_id} for resume {resume_id}")
+
+    latest_entries = state.get("resume_schema", {}).get("position_of_responsibility", [])
 
     system_prompt = SystemMessage(
         f"""
@@ -45,8 +48,9 @@ def call_por_model(state: SwarmResumeState, config: RunnableConfig):
 
         --- Responsibilities ---
         1. Collect and organize Position Of Responsibility info as mentioned in the schema below.
-        2. Always create or update entries using the `position_of_responsibility_tool` in real time **don't forget to provide index**.
-        3. Ask one question at a time to fill missing details.
+        2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
+        3. Always create or update entries using the `position_of_responsibility_tool` in real time **don't forget to provide index**.
+        4. Ask one question at a time to fill missing details.
         5. If user asks about different section check ur tools or route them to that agent
         6. If u didn't understand the request → call `transfer_to_main_agent`.
 

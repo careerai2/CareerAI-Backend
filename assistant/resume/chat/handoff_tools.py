@@ -46,7 +46,7 @@ transfer_to_extra_curricular_agent = create_handoff_tool(
 
 
 # # Code for custome handoff tool
-# def create_custom_handoff_tool(*, agent_name: str, name: str | None, description: str | None) -> BaseTool:
+# def education_handoff_tool(*, agent_name: str, name: str | None, description: str | None) -> BaseTool:
 
 #     @tool(name, description=description)
 #     def handoff_to_agent(

@@ -34,9 +34,12 @@ def call_scholastic_achievement_model(state: SwarmResumeState, config: RunnableC
 
     user_id = config["configurable"].get("user_id")
     resume_id = config["configurable"].get("resume_id")
+    tailoring_keys = config["configurable"].get("tailoring_keys", [])
 
     print(f"[Scholastic Achievement Agent] Handling user {user_id} for resume {resume_id}")
-
+    
+    latest_entries = state.get("resume_schema", {}).get("achievements", [])
+    
     system_prompt = SystemMessage(
         f"""
         You are the **Scholastic Achievement Assistant** for a Resume Builder application.
@@ -44,14 +47,20 @@ def call_scholastic_achievement_model(state: SwarmResumeState, config: RunnableC
 
         --- Responsibilities ---
         1. Collect and organize scholastic achievement info as mentioned in the schema.
-        2. Always create or update entries using the `scholastic_achievement_tool` in real time **don't forget to provide index**.
-        3. Ask one question at a time to fill missing details.
-        4. If user asks about different section check ur tools or route them to that agent
-        5. If u didn't understand the request → call `transfer_to_main_agent`.
+        2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
+        3. Always create or update entries using the `scholastic_achievement_tool` in real time **don't forget to provide index**.
+        4. Ask one question at a time to fill missing details.
+        5. If user asks about different section check ur tools or route them to that agent
+        6. If u didn't understand the request → call `transfer_to_main_agent`.
 
         Scholastic Achievement Schema Context:
         ```json
         { json.dumps(ScholasticAchievement.model_json_schema(), indent=2) }
+        ```
+
+        Current Entries:
+        ```json
+        { json.dumps(latest_entries, indent=2) }
         ```
         """
     )

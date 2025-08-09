@@ -9,6 +9,7 @@ import json
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
+from ..utils.update_summar_skills import update_summary_and_skills
 from ..handoff_tools import *
 
 
@@ -92,6 +93,18 @@ async def extra_curricular_Tool(
                     new_resume['extra_curriculars'][index][k] = v
             else:
                 raise IndexError("Index out of range for extra curricular entries.")
+            
+        if new_resume.get("total_updates", 0) > 5:
+            updated_service = await update_summary_and_skills(new_resume, new_resume.get("tailoring_keys", []))
+
+            if updated_service is not None:
+                if updated_service.summary:
+                    new_resume["summary"] = updated_service.summary
+                if updated_service.skills and 0 < len(updated_service.skills) <= 10:
+                    new_resume["skills"] = updated_service.skills
+                new_resume["total_updates"] = 0
+        else:
+            new_resume["total_updates"] = new_resume.get("total_updates", 0) + 1
 
         # ---- Save & Notify ----
         save_resume(user_id, resume_id, new_resume)
@@ -99,6 +112,8 @@ async def extra_curricular_Tool(
         await send_patch_to_frontend(user_id, new_resume)
 
         print(f"✅ ExtraCurricular section updated for {user_id}")
+        
+        return new_resume
 
     except Exception as e:
         print(f"❌ Error updating extra curricular for user {user_id}: {e}")

@@ -26,8 +26,11 @@ llm_work_experience = llm.bind_tools(tools)
 def call_work_experience_model(state: SwarmResumeState, config: RunnableConfig):
     user_id = config["configurable"].get("user_id")
     resume_id = config["configurable"].get("resume_id")
+    tailoring_keys = config["configurable"].get("tailoring_keys", [])
 
     print(f"[Work Experience Agent] Handling user {user_id} for resume {resume_id}")
+
+    latest_entries = state.get("resume_schema", {}).get("work_experiences", [])
 
     system_prompt = SystemMessage(
         f"""
@@ -36,12 +39,18 @@ def call_work_experience_model(state: SwarmResumeState, config: RunnableConfig):
 
         --- Responsibilities ---
         1. Collect and organize work experience info as mentioned in the schema below.
-        2. Create or update entries using `workex_tool` in real time and **don't forget to provide index**.
-        3. Ask one question at a time to fill missing details.
+        2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
+        3. Always create or update entries using the `workex_tool` in real time **don't forget to provide index**.
+        4. Ask one question at a time to fill missing details.
 
         Work Experience Schema Context:
         ```json
         { json.dumps(WorkExperience.model_json_schema(), indent=2) }
+        ```
+
+        Current Entries:
+        ```json
+        { json.dumps(latest_entries, indent=2) }
         ```
         """
     )

@@ -49,14 +49,15 @@ graph = create_swarm(
 async def stream_graph_to_websocket(user_input: str, websocket: WebSocket, user_id: str, resume_id: str,tailoring_keys: list[str] = None):
     # print(f"Streaming graph for user {user_id} with input {user_input}")
     # print(f"Tailoring keys for user {user_id}: {tailoring_keys}")
+    
+    resume = get_resume(user_id, resume_id)
+    
     async for event in graph.astream(
         {
             "messages": [
                 {"role": "user", "content": f"{user_input}"}
             ],
-            "resume_schema": get_resume(user_id, resume_id),
-            "user_id": user_id,
-            "resume_id": resume_id
+            "resume_schema": resume,
         },
         config={
         "configurable": {
@@ -65,7 +66,7 @@ async def stream_graph_to_websocket(user_input: str, websocket: WebSocket, user_
             "resume_id": resume_id,
             "tailoring_keys": tailoring_keys or []
         }
-    }
+    },
         # context={"user_id": user_id, "resume_id": resume_id},  # for graphs
     ):
         

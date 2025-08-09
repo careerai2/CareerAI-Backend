@@ -24,5 +24,3 @@ from langgraph.graph import StateGraph, MessagesState, START,END,add_messages
 class SwarmResumeState(SwarmState):
     messages: Annotated[list[AnyMessage], add_messages]
     resume_schema: ResumeLLMSchema
-    user_id: str
-    resume_id: str

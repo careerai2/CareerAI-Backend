@@ -7,8 +7,6 @@ from typing_extensions import TypedDict, Annotated
 from langgraph.graph.message import add_messages
 import json
 
-from ..handoff_tools import transfer_to_main_agent, transfer_to_education_agent
-from ..utils.tools import internship_Tool
 from ..llm_model import llm,SwarmResumeState
 from models.resume_model import ExtraCurricular
 from .tools import tools
@@ -36,8 +34,11 @@ def call_extra_curricular_model(state: SwarmResumeState, config: RunnableConfig)
 
     user_id = config["configurable"].get("user_id")
     resume_id = config["configurable"].get("resume_id")
+    tailoring_keys = config["configurable"].get("tailoring_keys", [])
 
     print(f"[Extra Curricular Agent] Handling user {user_id} for resume {resume_id}")
+
+    latest_entries = state.get("resume_schema", {}).get("extra_curriculars", [])
 
     system_prompt = SystemMessage(
         f"""
@@ -46,15 +47,21 @@ def call_extra_curricular_model(state: SwarmResumeState, config: RunnableConfig)
 
         --- Responsibilities ---
         1. Collect and organize extra curricular info according to the schema given below.
-        2. Always create or update entries using the `extra_curricular_tool` and  in real time **don't forget to provide index**.
-        3. Ask one question at a time to fill missing details.
-        4. If user asks about different section check ur tools or route them to that agent
-        5. If u didn't understand the request → call `transfer_to_main_agent`.
-        
+        2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
+        3. Always create or update entries using the `extra_curricular_tool` and  in real time **don't forget to provide index**.
+        4. Ask one question at a time to fill missing details.
+        5. If user asks about different section check ur tools or route them to that agent
+        6. If u didn't understand the request → call `transfer_to_main_agent`.
+
 
         Extra Curricular Schema Context:
         ```json
         { json.dumps(ExtraCurricular.model_json_schema(), indent=2) }
+        ```
+
+        Current Entries:
+        ```json
+        { json.dumps(latest_entries, indent=2) }
         ```
         """
     )

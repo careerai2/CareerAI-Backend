@@ -10,7 +10,7 @@ from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
 ALLOWED_FIELDS = {"title", "summary", "name", "email", "phone_number"}
 
 class TopLevelFieldUpdateInput(BaseModel):
-    field: Literal["title", "summary", "name", "email", "phone_number"]
+    field: Literal["title", "summary", "name", "email", "phone_number","skills"]
     value: Union[str, EmailStr]
 
     @field_validator("value", mode="before")
@@ -23,7 +23,7 @@ class TopLevelFieldUpdateInput(BaseModel):
 
 @tool(
     name_or_callable="update_top_level_field",
-    description="Update a top-level scalar field like name, title, summary, email, or phone_number in the resume.",
+    description="Update a top-level scalar field like name, title, summary, email, skills, or phone_number in the resume.",
     args_schema=TopLevelFieldUpdateInput,
     infer_schema=True,
     return_direct=False,
@@ -31,12 +31,13 @@ class TopLevelFieldUpdateInput(BaseModel):
     parse_docstring=False,
 )
 async def update_top_level_field(
-    field: Literal["title", "summary", "name", "email", "phone_number"],
-    value: Union[str, EmailStr],
+    field: Literal["title", "summary", "name", "email", "phone_number","skills"],
+    value: Union[str, EmailStr,list[str]],
     config: RunnableConfig,
 ) -> None:
     """
     Updates a top-level scalar field in the resume (not nested for nested fields).
+    
     """
     try:
         user_id = config["configurable"].get("user_id")
@@ -59,6 +60,8 @@ async def update_top_level_field(
         await send_patch_to_frontend(user_id, resume)
 
         print(f"✅ Top-level field '{field}' updated for {user_id}")
+        
+        return resume
 
     except Exception as e:
         print(f"❌ Error updating field '{field}' in resume: {e}")
