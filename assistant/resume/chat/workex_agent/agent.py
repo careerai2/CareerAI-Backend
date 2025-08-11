@@ -6,9 +6,6 @@ from langchain_core.runnables import RunnableConfig
 from typing_extensions import TypedDict, Annotated
 from langgraph.graph.message import add_messages
 import json
-
-from ..handoff_tools import transfer_to_main_agent, transfer_to_education_agent
-from ..utils.tools import internship_Tool
 from ..llm_model import llm, SwarmResumeState
 from models.resume_model import WorkExperience
 from .tools import tools

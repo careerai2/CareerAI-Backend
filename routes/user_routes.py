@@ -3,7 +3,7 @@ from controllers.user_controller import *
 from sqlalchemy.ext.asyncio import AsyncSession
 from validation.user_types import * 
 from db import get_database
-
+from postgress_db import get_postgress_db
 
 
 
@@ -82,6 +82,20 @@ async def get_resume(
 ):
     user_id = request.state.user["_id"]
     return await get_resume_by_Id(resume_id, user_id, session)
+
+
+
+
+@router.get("/get-resume-chat-history/{resume_id}")
+async def get__msgs(
+    resume_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_postgress_db)
+):
+    user_id = request.state.user["_id"]
+    resume_id_str = str(resume_id) # converted MongoDB ObjectId to string
+    user_id_str = str(user_id)     # '''''
+    return await get_resume_chat_msgs(resume_id_str, user_id_str, session)
 
 
 @router.get("/get-all-resume")

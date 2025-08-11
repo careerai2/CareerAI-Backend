@@ -8,7 +8,7 @@ from langgraph.prebuilt import InjectedState
 
 transfer_to_main_agent = create_handoff_tool(
     agent_name="main_assistant",
-    description="Transfer user to the main assistant for general queries."
+    description="Transfer user to the main assistant for general queries.",
 )
 
 transfer_to_education_agent = create_handoff_tool(

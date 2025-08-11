@@ -125,7 +125,7 @@ async def internship_Tool(
 
 
 
-tools_internship = [internship_Tool, transfer_to_main_agent, transfer_to_por_agent,
+tools = [internship_Tool, transfer_to_main_agent, transfer_to_por_agent,
          transfer_to_workex_agent, transfer_to_education_agent,
          transfer_to_scholastic_achievement_agent, transfer_to_extra_curricular_agent]
     

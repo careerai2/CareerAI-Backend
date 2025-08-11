@@ -8,7 +8,6 @@ from langgraph.graph.message import add_messages
 import json
 
 from .tools import tools
-from ..utils.tools import internship_Tool
 from ..llm_model import llm,SwarmResumeState
 from models.resume_model import PositionOfResponsibility
 

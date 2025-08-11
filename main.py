@@ -10,11 +10,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Annotated
 import os
 from db import get_database
-from assistant.resume.chat.swarm import stream_graph_to_websocket
+from postgress_db import get_postgress_db
+from assistant.resume.chat.swarm import stream_graph_to_websocket,update_resume_state
 from app_instance import app
 from bson import ObjectId
 import logging
 from assistant.resume.chat.utils.common_tools import get_tailoring_keys 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -68,7 +71,7 @@ app.include_router(user_router,dependencies=[Depends(AuthMiddleware)])
 
 
 @app.websocket("/resume-chat-ws/{resume_id}")
-async def resume_chat_ws(websocket: WebSocket, resume_id: str):
+async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: AsyncSession = Depends(get_postgress_db)):
     db = get_database()
     user = await websocket_auth(websocket, db)
     if not user:
@@ -85,14 +88,22 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str):
     # print(f"User {user['_id']} connected to resume {resume_id} with tailoring keys: {tailoring_keys}")
     try:
         while True:
-            user_input = await websocket.receive_text()
-            await stream_graph_to_websocket(
-                user_input=user_input,
-                websocket=websocket,
-                user_id=str(user["_id"]),
-                resume_id=resume_id,
-                tailoring_keys=tailoring_keys
-            )
+            user_input = await websocket.receive_json()
+
+            if user_input["type"] == "update_resume":
+                thread_id = f"{user['_id']}:{resume_id}"
+                await update_resume_state(thread_id, user_input["resume"])
+                await websocket.send_json({"type": "system", "message": "Resume updated in agent state"})
+
+            elif user_input["type"] == "chat":
+                await stream_graph_to_websocket(
+                    user_input=user_input["message"],
+                    websocket=websocket,
+                    user_id=str(user["_id"]),
+                    resume_id=resume_id,
+                    tailoring_keys=tailoring_keys,
+                    db=postgresql_db
+                )
     except WebSocketDisconnect:
         print(f"User {user['_id']} disconnected")
         app.state.connection_manager.active_connections.pop(user["_id"], None)

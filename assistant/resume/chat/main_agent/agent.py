@@ -60,7 +60,7 @@ def call_model(state: SwarmResumeState, config: RunnableConfig):
             ```
             """
     )
-    response = llm.invoke([system_prompt] + state["messages"][-10:], config)
+    response = llm.invoke([system_prompt] + state["messages"], config)
     return {"messages": [response]}
 
 def should_continue(state: SwarmResumeState):

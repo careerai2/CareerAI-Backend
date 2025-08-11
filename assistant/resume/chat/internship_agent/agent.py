@@ -8,10 +8,9 @@ from langgraph.graph.message import add_messages
 import json
 
 from ..handoff_tools import transfer_to_main_agent, transfer_to_education_agent
-from ..utils.tools import internship_Tool
 from ..llm_model import llm,SwarmResumeState
 from models.resume_model import Internship
-
+from .tools import tools
 # ---------------------------
 # 1. Define State
 # ---------------------------
@@ -25,7 +24,6 @@ class SwarmResumeState(TypedDict):
 # 2. LLM with Tools
 # ---------------------------
 
-tools = [transfer_to_main_agent, transfer_to_education_agent, internship_Tool]
 llm_internship = llm.bind_tools(tools)
 
 # ---------------------------

@@ -1,7 +1,7 @@
 from fastapi import Depends, status
 from fastapi.responses import JSONResponse,Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select,or_
+from sqlalchemy import select,or_,desc
 # from db import get_session
 from models.user_model import *
 from validation.user_types import *
@@ -20,7 +20,8 @@ from redis_config import redis_client as r
 import json 
 from utils.convert_objectIds import convert_objectids
 from models.resume_model import ResumeLLMSchema
-
+from sqlalchemy.ext.asyncio import AsyncSession
+from models.chat_msg_model import ChatMessage
 
 async def signup_user(user_data: UserSignup, db: AsyncIOMotorDatabase):
     try:
@@ -301,6 +302,8 @@ async def get_all_resume(user_id: int, session: AsyncSession):
 #extract resume from user audio input
 from assistant.resume.parse_userAudio_input import parse_user_audio_input
 from validation.resume_validation import ResumeModel
+
+
 async def extract_resume_from_audio(user_input: str, template: str, user_id: str, db: AsyncIOMotorDatabase):
     try:
         # Call your parsing logic — assuming it returns a valid SQLModel instance
@@ -388,7 +391,49 @@ async def get_resume_by_Id(resume_id: str, user_id: str, db: AsyncIOMotorDatabas
             content={"message": f"An error occurred while fetching resume: {str(e)}"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-
+async def get_resume_chat_msgs(resume_id: str, user_id: str, db: AsyncSession):
+    try:
+        result = await db.execute(
+            select(ChatMessage)
+            .where(ChatMessage.resume_id == resume_id)
+            .where(ChatMessage.user_id == user_id)
+            .order_by(ChatMessage.timestamp.asc())  # oldest first for chat history
+        )
+        
+        chat_messages = result.scalars().all()
+        
+        # Map sender_role to sender and type
+        def map_sender_role(role: str):
+            if role == "assistant":
+                return "Agent", "received"
+            elif role == "user":
+                return "User", "sent"
+            else:
+                return "System", "system"
+        
+        serialized_msgs = []
+        for msg in chat_messages:
+            sender, mtype = map_sender_role(msg.sender_role)
+            serialized_msgs.append({
+                "id": str(msg.id),
+                "sender": sender,
+                "text": msg.message,
+                "type": mtype,
+                "timestamp": msg.timestamp.isoformat()
+            })
+        
+        return JSONResponse(
+            content={"messages": serialized_msgs},
+            status_code=status.HTTP_200_OK
+        )
+    except Exception as e:
+        print(f"Error fetching chat messages: {e}")
+        return JSONResponse(
+            content={"message": f"An error occurred while fetching chat messages: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+        
+        
 
 async def get_all_resumes_by_user(user_id: str, db: AsyncIOMotorDatabase):
     try:

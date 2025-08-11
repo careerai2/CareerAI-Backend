@@ -33,6 +33,7 @@ Important:
 {format_instructions}
 
 Return ONLY the full updated JSON with these two fields changed:
+You must always return valid JSON fenced by a markdown code block. Do not return any additional text.
 - `"summary"`: updated summary string or null
 - `"skills"`: updated skills list or empty list
 
@@ -71,5 +72,4 @@ async def update_summary_and_skills(current_resume, tailoring_keys):
         print("LLM raw output:", result)
         return result
     except Exception as e:
-        print("LLM raw output caused error, check prompt and schema alignment.")
-        raise e
+        print("LLM raw output caused error, check prompt and schema alignment. Error ->", e)
