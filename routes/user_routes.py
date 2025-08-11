@@ -86,16 +86,16 @@ async def get_resume(
 
 
 
-@router.get("/get-resume-chat-history/{resume_id}")
-async def get__msgs(
-    resume_id: str,
-    request: Request,
-    session: AsyncSession = Depends(get_postgress_db)
-):
-    user_id = request.state.user["_id"]
-    resume_id_str = str(resume_id) # converted MongoDB ObjectId to string
-    user_id_str = str(user_id)     # '''''
-    return await get_resume_chat_msgs(resume_id_str, user_id_str, session)
+# @router.get("/get-resume-chat-history/{resume_id}")
+# async def get__msgs(
+#     resume_id: str,
+#     request: Request,
+#     session: AsyncSession = Depends(get_postgress_db)
+# ):
+#     user_id = request.state.user["_id"]
+#     resume_id_str = str(resume_id) # converted MongoDB ObjectId to string
+#     user_id_str = str(user_id)     # '''''
+#     return await get_resume_chat_msgs(resume_id_str, user_id_str, session)
 
 
 @router.get("/get-all-resume")

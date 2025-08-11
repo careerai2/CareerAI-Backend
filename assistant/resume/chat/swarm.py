@@ -80,7 +80,6 @@ async def update_resume_state(thread_id: str, new_resume: dict):
 
 
 
-
 async def stream_graph_to_websocket(user_input: str, websocket: WebSocket, user_id: str, resume_id: str,tailoring_keys: list[str] = None, db: AsyncSession = Depends(get_postgress_db)):
     # print(f"Streaming graph for user {user_id} with input {user_input}")
     # print(f"Tailoring keys for user {user_id}: {tailoring_keys}")
@@ -92,7 +91,7 @@ async def stream_graph_to_websocket(user_input: str, websocket: WebSocket, user_
     
     resume = get_resume(user_id, resume_id)
     
-    await save_chat_message(db, user_id, resume_id, user_input, sender_role='user')
+    # await save_chat_message(db, user_id, resume_id, user_input, sender_role='user')
     
 
     async for event in graph.astream(
@@ -122,7 +121,7 @@ async def stream_graph_to_websocket(user_input: str, websocket: WebSocket, user_
                 content = msg.content
             if content and len(content) > 0:
                try:
-                 await save_chat_message(db, user_id, resume_id, content, sender_role='assistant')
+                #  await save_chat_message(db, user_id, resume_id, content, sender_role='assistant')
                  await websocket.send_json({"type": "message", "message": content})
                except Exception as e:
                    print(f"Error saving chat message: {e}")
