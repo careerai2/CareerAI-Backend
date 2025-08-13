@@ -26,6 +26,14 @@ def get_database() -> AsyncIOMotorDatabase:
 
 # Async init placeholder for future (if needed)
 async def init_db():
+    users_collection = db.get_collection("users")
+    
+    # Create unique index for email
+    await users_collection.create_index(
+        [("email", 1)],
+        unique=True,
+        name="unique_email_index"
+    )
     print("MongoDB client initialized.")
 
 

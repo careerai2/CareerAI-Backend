@@ -17,7 +17,7 @@ from bson import ObjectId
 import logging
 from assistant.resume.chat.utils.common_tools import get_tailoring_keys 
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from starlette.middleware.sessions import SessionMiddleware
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +39,8 @@ os.environ["GOOGLE_API_KEY"]=os.getenv("GOOGLE_API_KEY")
 ## Langmith tracking
 os.environ["LANGCHAIN_TRACING_V2"]="true"
 os.environ["LANGCHAIN_API_KEY"]=os.getenv("LANGCHAIN_API_KEY")
+
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "supersecretkey"))
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):

@@ -33,7 +33,7 @@ class ConnectionManager:
     async def send_json_to_user(self, user_id: str, message: dict):
         websocket = self.active_connections.get(user_id)
         if websocket:
-            print(f"Sending JSON to user {user_id}: {message}")
+            # print(f"Sending JSON to user {user_id}: {message}")
             await websocket.send_json(message)
 
     async def broadcast(self, message: str):

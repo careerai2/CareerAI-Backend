@@ -123,8 +123,231 @@ async def workex_Tool(
 
 
 
+class MoveOperation(BaseModel):
+    old_index: int
+    new_index: int
 
-tools = [workex_Tool, transfer_to_extra_curricular_agent, transfer_to_por_agent,
+
+@tool(
+    name_or_callable="reorder_tool",
+    description="Reorder the work experience entries in the user's resume.",
+    infer_schema=True,
+    return_direct=False,
+    response_format="content",
+    parse_docstring=False
+)
+async def reorder_tool(operations: list[MoveOperation], config: RunnableConfig) -> None:
+    """Reorder the work experience entries in the user's resume."""
+
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        # print(operations)
+
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        # ✅ Validate operation
+        if operations is None or len(operations) is 0:
+            raise ValueError("Missing 'operations' for reorder operation.")
+        
+        
+        new_resume = get_resume(user_id, resume_id)
+                
+        # Ensure key exists
+        if "work_experiences" not in new_resume:
+            raise ValueError("No work_experiences entries found in the resume.")
+
+        total_entry = len(new_resume['work_experiences'])
+
+        for op in operations:
+            old_index = op.old_index
+            new_index = op.new_index
+            
+            if not isinstance(op, MoveOperation):
+                raise ValueError("Invalid operation type. Expected 'MoveOperation'.")
+
+            if old_index < 0 or old_index >= total_entry:
+                raise IndexError(f"Old index {old_index} out of range for internship entries.")
+            if new_index < 0 or new_index >= total_entry:
+                raise IndexError(f"New index {new_index} out of range for internship entries.")
+
+
+        # ---- Handle operations ----
+        for op in sorted(operations, key=lambda x: x.old_index):
+            old_index = op.old_index
+            new_index = op.new_index
+
+            # Move the entry
+            entry = new_resume['work_experiences'].pop(old_index)
+            new_resume['work_experiences'].insert(new_index, entry)
+
+        # ---- Save & Notify ----
+        save_resume(user_id, resume_id, new_resume)
+        await send_patch_to_frontend(user_id, new_resume)
+
+        print(f"✅ work_experiences section reordered for {user_id}")
+
+        return new_resume
+
+    except Exception as e:
+        print(f"❌ Error reordering resume for user in work_experiences: {e}")
+
+
+
+
+
+# ---- Tool function ----
+@tool(
+    name_or_callable="reorder_projects_tool",
+    description="Reorder the responsibilities in a particular work_experience entry of the user's resume.",
+    infer_schema=True,
+    return_direct=False,
+    response_format="content",
+    parse_docstring=False
+)
+async def reorder_projects_tool(
+    operations: list[MoveOperation],
+    entry_at: int,
+    config: RunnableConfig,
+) -> None:
+    """Reorder the projects in a particular work_experience entry of the user's resume."""
+
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        if not operations or len(operations) == 0:
+            raise ValueError("Missing 'operations' for reorder operation.")
+
+        new_resume = get_resume(user_id, resume_id)
+
+        if "work_experiences" not in new_resume:
+            raise ValueError("No work_experiences entries found in the resume.")
+
+        total_entry = len(new_resume['work_experiences'])
+        if entry_at < 0 or entry_at >= total_entry:
+            raise IndexError(f"Entry index {entry_at} out of range.")
+
+        projects = new_resume['work_experiences'][entry_at].get('projects', [])
+        total_bullet_points = len(projects)
+
+        if total_bullet_points == 0:
+            raise ValueError("No projects found in the specified entry.")
+
+        # ✅ Validate all moves before doing anything
+        for op in operations:
+            if not isinstance(op, MoveOperation):
+                raise ValueError("Invalid operation type. Expected 'MoveOperation'.")
+            if op.old_index < 0 or op.old_index >= total_bullet_points:
+                raise IndexError(f"Old index {op.old_index} out of range.")
+            if op.new_index < 0 or op.new_index >= total_bullet_points:
+                raise IndexError(f"New index {op.new_index} out of range.")
+
+        # ✅ Handle moves safely — process in a way that avoids shifting index issues
+        # Sort by old_index to ensure correct order of pops
+        for op in sorted(operations, key=lambda x: x.old_index):
+            item = projects.pop(op.old_index)
+            projects.insert(op.new_index, item)
+
+        # ✅ Save changes
+        save_resume(user_id, resume_id, new_resume)
+        await send_patch_to_frontend(user_id, new_resume)
+
+        print(f"✅ Reordered projects for user {user_id}")
+        return new_resume
+
+    except Exception as e:
+        print(f"❌ Error reordering projects: {e}")
+
+
+# ---- Tool function ----
+@tool(
+    name_or_callable="reorder_projects_description_bullets_tool",
+    description="Reorder the description bullets in a particular project entry of a particular work_experience entry of the user's resume.",
+    infer_schema=True,
+    return_direct=False,
+    response_format="content",
+    parse_docstring=False
+)
+async def reorder_project_description_bullets_tool(
+    operations: list[MoveOperation],
+    workex_entry_at: int,
+    project_at: int,
+    config: RunnableConfig,
+) -> None:
+    """Reorder the description bullets in a particular project entry of a particular work_experience entry of the user's resume."""
+
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        if not operations or len(operations) == 0:
+            raise ValueError("Missing 'operations' for reorder operation.")
+
+        new_resume = get_resume(user_id, resume_id)
+
+        if "work_experiences" not in new_resume:
+            raise ValueError("No work_experiences entries found in the resume.")
+
+        total_entry = len(new_resume['work_experiences'])
+        
+        if workex_entry_at < 0 or workex_entry_at >= total_entry:
+            raise IndexError(f"Entry index {workex_entry_at} out of range.")
+
+        projects = new_resume['work_experiences'][workex_entry_at].get('projects', [])
+        total_bullet_points = len(projects)
+
+        if total_bullet_points == 0:
+            raise ValueError("No projects found in the specified entry.")
+        
+        
+                # ✅ Validate all moves before doing anything
+        for op in operations:
+            if not isinstance(op, MoveOperation):
+                raise ValueError("Invalid operation type. Expected 'MoveOperation'.")
+            if op.old_index < 0 or op.old_index >= total_bullet_points:
+                raise IndexError(f"Old index {op.old_index} out of range.")
+            if op.new_index < 0 or op.new_index >= total_bullet_points:
+                raise IndexError(f"New index {op.new_index} out of range.")
+            
+
+        if project_at < 0 or project_at >= total_bullet_points:
+            raise IndexError(f"Project index {project_at} out of range.")
+
+        project_description_bullets = projects[project_at].get('description_bullets', [])
+        
+        if len(project_description_bullets) == 0:
+            raise ValueError("No description bullets found in the specified project.")
+
+
+
+        # ✅ Handle moves safely — process in a way that avoids shifting index issues
+        # Sort by old_index to ensure correct order of pops
+        for op in sorted(operations, key=lambda x: x.old_index):
+            item = project_description_bullets.pop(op.old_index)
+            project_description_bullets.insert(op.new_index, item)
+
+        # ✅ Save changes
+        save_resume(user_id, resume_id, new_resume)
+        await send_patch_to_frontend(user_id, new_resume)
+
+        print(f"✅ Reordered projects for user {user_id}")
+        return new_resume
+
+    except Exception as e:
+        print(f"❌ Error reordering projects: {e}")
+
+
+
+tools = [workex_Tool,reorder_tool,reorder_projects_tool,reorder_project_description_bullets_tool, transfer_to_extra_curricular_agent, transfer_to_por_agent,
          transfer_to_scholastic_achievement_agent, transfer_to_internship_agent
          ,transfer_to_education_agent, transfer_to_main_agent
          ]

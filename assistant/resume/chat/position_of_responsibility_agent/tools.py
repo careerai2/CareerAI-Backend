@@ -123,7 +123,156 @@ async def position_of_responsibility_tool(
 
 
 
-tools = [position_of_responsibility_tool, transfer_to_extra_curricular_agent, transfer_to_main_agent,
+
+
+class MoveOperation(BaseModel):
+    old_index: int
+    new_index: int
+
+# ---- Pydantic input schema ----
+class ReorderToolInput(BaseModel):
+    operations: list[MoveOperation]
+
+
+@tool(
+    name_or_callable="reorder_tool",
+    description="Reorder the positions_of_responsibility entries in the user's resume.",
+    args_schema=ReorderToolInput,
+    infer_schema=True,
+    return_direct=False,
+    response_format="content",
+    parse_docstring=False
+)
+async def reorder_Tool(operations: ReorderToolInput,config: RunnableConfig,) -> None:
+    """Reorder the positions_of_responsibility entries in the user's resume."""
+
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        # print(operations)
+
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        # ✅ Validate operation
+        if operations is None or len(operations) is 0:
+            raise ValueError("Missing 'operations' for reorder operation.")
+        
+        
+        new_resume = get_resume(user_id, resume_id)
+                
+        # Ensure key exists
+        if "positions_of_responsibility" not in new_resume:
+            raise ValueError("No positions_of_responsibility entries found in the resume.")
+
+        total_entry = len(new_resume['positions_of_responsibility'])
+
+        for op in operations:
+            old_index = op.old_index
+            new_index = op.new_index
+            
+            if not isinstance(op, MoveOperation):
+                raise ValueError("Invalid operation type. Expected 'MoveOperation'.")
+
+            if old_index < 0 or old_index >= total_entry:
+                raise IndexError(f"Old index {old_index} out of range for internship entries.")
+            if new_index < 0 or new_index >= total_entry:
+                raise IndexError(f"New index {new_index} out of range for internship entries.")
+
+
+        # ---- Handle operations ----
+        for op in sorted(operations, key=lambda x: x.old_index):
+            old_index = op.old_index
+            new_index = op.new_index
+
+            # Move the entry
+            entry = new_resume['positions_of_responsibility'].pop(old_index)
+            new_resume['positions_of_responsibility'].insert(new_index, entry)
+
+        # ---- Save & Notify ----
+        save_resume(user_id, resume_id, new_resume)
+        await send_patch_to_frontend(user_id, new_resume)
+
+        print(f"✅ positions_of_responsibility section reordered for {user_id}")
+
+        return new_resume
+
+    except Exception as e:
+        print(f"❌ Error reordering resume for user in positions_of_responsibility: {e}")
+
+
+
+
+
+# ---- Tool function ----
+@tool(
+    name_or_callable="reorder_responsibilities_tool",
+    description="Reorder the responsibilities in a particular positions_of_responsibility entry of the user's resume.",
+    infer_schema=True,
+    return_direct=False,
+    response_format="content",
+    parse_docstring=False
+)
+async def reorder_responsibilities_tool(
+    operations: list[MoveOperation],
+    entry_at: int,
+    config: RunnableConfig,
+) -> None:
+    """Reorder the responsibilities in a particular positions_of_responsibility entry of the user's resume."""
+
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        if not operations or len(operations) == 0:
+            raise ValueError("Missing 'operations' for reorder operation.")
+
+        new_resume = get_resume(user_id, resume_id)
+
+        if "positions_of_responsibility" not in new_resume:
+            raise ValueError("No positions_of_responsibility entries found in the resume.")
+
+        total_entry = len(new_resume['positions_of_responsibility'])
+        if entry_at < 0 or entry_at >= total_entry:
+            raise IndexError(f"Entry index {entry_at} out of range.")
+
+        responsibilities = new_resume['positions_of_responsibility'][entry_at].get('responsibilities', [])
+        total_bullet_points = len(responsibilities)
+
+        if total_bullet_points == 0:
+            raise ValueError("No responsibilities found in the specified entry.")
+
+        # ✅ Validate all moves before doing anything
+        for op in operations:
+            if not isinstance(op, MoveOperation):
+                raise ValueError("Invalid operation type. Expected 'MoveOperation'.")
+            if op.old_index < 0 or op.old_index >= total_bullet_points:
+                raise IndexError(f"Old index {op.old_index} out of range.")
+            if op.new_index < 0 or op.new_index >= total_bullet_points:
+                raise IndexError(f"New index {op.new_index} out of range.")
+
+        # ✅ Handle moves safely — process in a way that avoids shifting index issues
+        # Sort by old_index to ensure correct order of pops
+        for op in sorted(operations, key=lambda x: x.old_index):
+            item = responsibilities.pop(op.old_index)
+            responsibilities.insert(op.new_index, item)
+
+        # ✅ Save changes
+        save_resume(user_id, resume_id, new_resume)
+        await send_patch_to_frontend(user_id, new_resume)
+
+        print(f"✅ Reordered responsibilities for user {user_id}")
+        return new_resume
+
+    except Exception as e:
+        print(f"❌ Error reordering responsibilities: {e}")
+
+
+tools = [position_of_responsibility_tool,reorder_Tool,reorder_responsibilities_tool, transfer_to_extra_curricular_agent, transfer_to_main_agent,
          transfer_to_workex_agent, transfer_to_internship_agent
          ,transfer_to_education_agent,transfer_to_scholastic_achievement_agent]
 

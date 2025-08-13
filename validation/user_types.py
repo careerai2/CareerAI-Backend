@@ -19,6 +19,12 @@ class UserLogin(BaseModel):
     email: str
     password: str
     
+class GoogleAuth_Input(BaseModel):
+    name: str
+    email: str
+    picture: str
+    
+    
 class EducationCreate(BaseModel):
     college: str
     degree: str

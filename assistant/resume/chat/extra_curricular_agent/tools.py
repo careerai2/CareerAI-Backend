@@ -122,6 +122,84 @@ async def extra_curricular_Tool(
 
 
 
+class MoveOperation(BaseModel):
+    old_index: int
+    new_index: int
+
+
+# ---- Tool function ----
+@tool(
+    name_or_callable="reorder_tool",
+    description="Reorder the education entries in the user's resume.",
+    infer_schema=True,
+    return_direct=False,
+    response_format="content",
+    parse_docstring=False
+)
+async def reorder_Tool(
+    operations: list[MoveOperation],
+    config: RunnableConfig,
+) -> None:
+    """Reorder the education entries in the user's resume.
+    """
+
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        print(operations)
+
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        # ✅ Validate operation
+        if operations is None or len(operations) is 0:
+            raise ValueError("Missing 'operations' for reorder operation.")
+        
+        
+        new_resume = get_resume(user_id, resume_id)
+                
+        # Ensure key exists
+        if "extra_curriculars" not in new_resume:
+            raise ValueError("No extra curricular entries found in the resume.")
+
+        for op in operations:
+            old_index = op.old_index
+            new_index = op.new_index
+            
+            if not isinstance(op, MoveOperation):
+                raise ValueError("Invalid operation type. Expected 'MoveOperation'.")
+            
+            if old_index < 0 or old_index >= len(new_resume['education_entries']):
+                raise IndexError(f"Old index {old_index} out of range for education entries.")
+            if new_index < 0 or new_index >= len(new_resume['education_entries']):
+                raise IndexError(f"New index {new_index} out of range for education entries.")
+
+
+        # ---- Handle operations ----
+        for op in sorted(operations, key=lambda x: x.old_index):
+            old_index = op.old_index
+            new_index = op.new_index
+
+            # Move the entry
+            entry = new_resume['extra_curriculars'].pop(old_index)
+            new_resume['extra_curriculars'].insert(new_index, entry)
+
+        # ---- Save & Notify ----
+        save_resume(user_id, resume_id, new_resume)
+        await send_patch_to_frontend(user_id, new_resume)
+
+        print(f"✅ extra_curriculars section reordered for {user_id}")
+
+        return new_resume
+
+    except Exception as e:
+        print(f"❌ Error reordering extra_curriculars for user: {e}")
+
+
+
+
+
 tools = [extra_curricular_Tool, transfer_to_main_agent, transfer_to_por_agent,
          transfer_to_workex_agent, transfer_to_internship_agent
          ,transfer_to_education_agent,transfer_to_scholastic_achievement_agent]

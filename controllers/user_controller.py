@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi import status
 from bson import ObjectId
 from pymongo import ReturnDocument
-from validation.user_types import UserSignup
+from validation.user_types import UserSignup,GoogleAuth_Input
 from utils.jwt import create_jwt
 from utils.security import hash_password
 from redis_config import redis_client as r
@@ -105,6 +105,49 @@ async def login_user(user_data: UserLogin, db: AsyncIOMotorDatabase):
         )
 
 
+async def google_auth(user_data: GoogleAuth_Input, db: AsyncIOMotorDatabase):
+    try:
+        users_collection = db.get_collection("users")
+        
+        existing_user = await users_collection.find_one({"email": user_data.email})
+
+        if existing_user:
+            if existing_user.get("auth_provider") != "google":
+                return JSONResponse(
+                    {"message": "Email already registered with password"},
+                    status_code=status.HTTP_409_CONFLICT
+                )
+            
+            token = create_jwt(user_id=str(existing_user["_id"]), role="user")
+            return JSONResponse(
+                {"message": "Login successful", "access_token": token, "role": "user"},
+                status_code=status.HTTP_200_OK
+            )
+
+        # Create new user
+        new_user = {
+            "email": user_data.email,
+            "username": user_data.name,
+            "profile_picture": user_data.picture,
+            "auth_provider": "google",
+            "password": None,
+            "email_verified": True
+        }
+
+        insert_result = await users_collection.insert_one(new_user)
+        token = create_jwt(user_id=str(insert_result.inserted_id), role="user")
+
+        return JSONResponse(
+            {"message": "User created successfully", "access_token": token, "role": "user"},
+            status_code=status.HTTP_201_CREATED
+        )
+
+    except Exception as e:
+        print(f"Error during Google auth: {e}")
+        return JSONResponse(
+            {"message": "Internal server error"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 

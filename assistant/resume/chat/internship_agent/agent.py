@@ -51,7 +51,8 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
         1. Collect and organize internship info (Company, Role, Duration, Location, Achievements).
         2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
         3. Create or update entries using `internship_tool` in real time **don't forget to provide index**.
-        4. Ask one question at a time to fill missing details.
+        4. You can move entries using `reorder_tool & reorder_bullet_points_tool` with `MoveOperation`, it requires old_index and new_index,to move the entry,***Don't ask user for indexes brainstorm yourself you already have current entries***.
+        5. Ask one question at a time to fill missing details.
 
         Internship Schema Context:
         ```json

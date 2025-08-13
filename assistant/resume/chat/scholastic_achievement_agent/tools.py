@@ -123,8 +123,85 @@ async def scholastic_achievement_tool(
 
 
 
+class MoveOperation(BaseModel):
+    old_index: int
+    new_index: int
 
-tools = [scholastic_achievement_tool, transfer_to_extra_curricular_agent, transfer_to_por_agent,
+
+# ---- Tool function ----
+@tool(
+    name_or_callable="reorder_tool",
+    description="Reorder the education entries in the user's resume.",
+    infer_schema=True,
+    return_direct=False,
+    response_format="content",
+    parse_docstring=False
+)
+async def reorder_tool(
+    operations: list[MoveOperation],
+    config: RunnableConfig,
+) -> None:
+    """Reorder the achievements entries in the user's resume.
+    """
+
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        print(operations)
+
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        # ✅ Validate operation
+        if operations is None or len(operations) is 0:
+            raise ValueError("Missing 'operations' for reorder operation.")
+        
+        
+        new_resume = get_resume(user_id, resume_id)
+                
+        # Ensure key exists
+        if "achievements" not in new_resume:
+            raise ValueError("No achievements found in the resume.")
+
+        for op in operations:
+            old_index = op.old_index
+            new_index = op.new_index
+            
+            if not isinstance(op, MoveOperation):
+                raise ValueError("Invalid operation type. Expected 'MoveOperation'.")
+            
+            if old_index < 0 or old_index >= len(new_resume['education_entries']):
+                raise IndexError(f"Old index {old_index} out of range for education entries.")
+            if new_index < 0 or new_index >= len(new_resume['education_entries']):
+                raise IndexError(f"New index {new_index} out of range for education entries.")
+
+
+        # ---- Handle operations ----
+        for op in sorted(operations, key=lambda x: x.old_index):
+            old_index = op.old_index
+            new_index = op.new_index
+
+            # Move the entry
+            entry = new_resume['achievements'].pop(old_index)
+            new_resume['achievements'].insert(new_index, entry)
+
+        # ---- Save & Notify ----
+        save_resume(user_id, resume_id, new_resume)
+        await send_patch_to_frontend(user_id, new_resume)
+
+        print(f"✅ achievements section reordered for {user_id}")
+
+        return new_resume
+
+    except Exception as e:
+        print(f"❌ Error reordering achievements for user: {e}")
+
+
+
+
+
+tools = [scholastic_achievement_tool, reorder_tool, transfer_to_extra_curricular_agent, transfer_to_por_agent,
          transfer_to_workex_agent, transfer_to_internship_agent
          ,transfer_to_education_agent, transfer_to_main_agent]
 

@@ -33,11 +33,13 @@ class UserCreate(BaseModel):
     email: EmailStr
     username: Optional[str]
     phone_number: Optional[str]
-    password: str  # should be hashed before saving
+    password: Optional[str] = None  # should be hashed before saving
     otp: Optional[int] = None  # One-time password for verification
     otp_expiry: Optional[datetime] = None  # Expiry time for OTP
     email_verified: bool = False  # Flag to check if email is verified
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    auth_provider: Optional[str] = Field(default="custom")  # "custom" or "google"
+    profile_pictire:Optional[str] = None
 
     model_config = {
         "json_schema_extra": {
@@ -49,6 +51,7 @@ class UserCreate(BaseModel):
                 "otp": 123456,
                 "otp_expiry": "2023-10-01T12:00:00Z",
                 "email_verified": False,
+                "auth_provider": "custom"
             }
         }
     }

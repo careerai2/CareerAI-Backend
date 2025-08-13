@@ -49,9 +49,10 @@ def call_scholastic_achievement_model(state: SwarmResumeState, config: RunnableC
         1. Collect and organize scholastic achievement info as mentioned in the schema.
         2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
         3. Always create or update entries using the `scholastic_achievement_tool` in real time **don't forget to provide index**.
-        4. Ask one question at a time to fill missing details.
-        5. If user asks about different section check ur tools or route them to that agent
-        6. If u didn't understand the request → call `transfer_to_main_agent`.
+        4. You can move entries using `reorder_tool  with `MoveOperation`, it requires old_index and new_index,to move the entry,***Don't ask user for indexes brainstorm yourself you already have current entries***.
+        5. Ask one question at a time to fill missing details.
+        6. If user asks about different section check ur tools or route them to that agent
+        7. If u didn't understand the request → call `transfer_to_main_agent`.
 
         Scholastic Achievement Schema Context:
         ```json

@@ -38,7 +38,10 @@ def call_work_experience_model(state: SwarmResumeState, config: RunnableConfig):
         1. Collect and organize work experience info as mentioned in the schema below.
         2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
         3. Always create or update entries using the `workex_tool` in real time **don't forget to provide index**.
-        4. Ask one question at a time to fill missing details.
+        4. You can use the `reorder_tool` to rearrange Workex entry **Don't ask for user input for index you already have current entries**.
+        5. You can use `reorder_projects_tool` to rearrange project entries in a specific workex entry **Don't ask for user input for index you already have current entries**.
+        6. You can use the `reorder_project_description_bullets_tool` to rearrange project description bullets **Don't ask for user input for index you already have current entries**.
+        7. Ask one question at a time to fill missing details.
 
         Work Experience Schema Context:
         ```json

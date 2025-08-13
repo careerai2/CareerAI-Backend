@@ -47,10 +47,11 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
         2. Encourage adding CGPA/Percentage and achievements.
         3. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
         4. Create or update entries using `education_tool` in real time **don't forget to provide index**.
-        5. When adding new entry, first check if the entry already exists, Inform the user and ask if they want to update it even for bullet points.
-        6. Ask one question at a time to fill missing details.
-        7. If user asks about different section check ur tools or route them to that agent
-        8. If u didn't understand the request → call `transfer_to_main_agent`.
+        5. You can move entries using `reorder_tool` with `MoveOperation`, it requires old_index and new_index,to move the entry,***Don't ask user for indexes brainstorm yourself you already have current entries***.
+        6. When adding new entry, first check if the entry already exists, Inform the user and ask if they want to update it even for bullet points.
+        7. Ask one question at a time to fill missing details.
+        8. If user asks about different section check ur tools or route them to that agent
+        9. If u didn't understand the request → call `transfer_to_main_agent`.
 
         Education Schema Context:
         ```json

@@ -1,6 +1,6 @@
 from fastapi import WebSocket, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage,HumanMessage
 from fastapi import WebSocket
 from models.resume_model import ResumeLLMSchema
 from .utils.common_tools import get_resume
@@ -41,7 +41,7 @@ graph = create_swarm(
 ).compile(checkpointer=memory)
 
 from langchain_core.messages import AIMessage
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 import json
 
 async def update_resume_state(thread_id: str, new_resume: dict):
@@ -79,25 +79,100 @@ async def update_resume_state(thread_id: str, new_resume: dict):
         print(f"❌ Error updating resume state: {e}")
 
 
+from enum import Enum
 
-async def stream_graph_to_websocket(user_input: str, websocket: WebSocket, user_id: str, resume_id: str,tailoring_keys: list[str] = None, db: AsyncSession = Depends(get_postgress_db)):
+class AgentName(str, Enum):
+    MAIN_ASSISTANT = "main_assistant"
+    EDUCATION_ASSISTANT = "education_assistant"
+    INTERNSHIP_ASSISTANT = "internship_assistant"
+    WORKEX_ASSISTANT = "workex_assistant"
+    POR_ASSISTANT = "Position_of_responsibility_assistant"
+    SCHOLASTIC_ACHIEVEMENT_ASSISTANT = "scholastic_achievement_assistant"
+    EXTRA_CURRICULAR_ASSISTANT = "extra_curricular_assistant"
+
+
+class ask_agent_input(BaseModel):
+    agent_name: AgentName
+    selection: str
+    question: str
+
+
+
+
+async def set_agent(thread_id: str, agent_name: ask_agent_input):
+    """
+    Set the active agent of the graph and ask about a particular section of the resume.
+    """
+    try:
+
+
+        graph.update_state(
+            config={
+                "configurable": {
+                    "thread_id": thread_id
+                }
+            },
+            values={
+                "active_agent": agent_name,
+                    "messages": [
+                        AIMessage(content=f"Active Agent is set to {agent_name}")
+                    ]
+            }
+        )
+
+
+        print(f"Ask agent executed {thread_id}")
+
+    except ValidationError as ve:
+        print(f"❌ Resume validation failed: {ve}")
+    except Exception as e:
+        print(f"❌ Error updating resume state: {e}")
+
+
+
+
+async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket: WebSocket, user_id: str, resume_id: str,tailoring_keys: list[str] = None, db: AsyncSession = Depends(get_postgress_db)):
     # print(f"Streaming graph for user {user_id} with input {user_input}")
     # print(f"Tailoring keys for user {user_id}: {tailoring_keys}")
     
-    
-    if(user_input is None or user_input.strip() == ""):
-        print(f"❌ Invalid input from user {user_id} for resume {resume_id}")
-        return
-    
+
     resume = get_resume(user_id, resume_id)
+    
+    print(user_input)
     
     # await save_chat_message(db, user_id, resume_id, user_input, sender_role='user')
     
+    if isinstance(user_input, dict):
+        try:
+            user_input = ask_agent_input(**user_input)
+        except ValidationError:
+            # If it fails, maybe it's just a string message in dict form
+            if "message" in user_input:
+                user_input = user_input["message"]
+            else:
+                raise
+
+
+    # For specific agent input
+    if isinstance(user_input, ask_agent_input):
+        print("I am running ask_agent_input")
+        await set_agent(f"{user_id}:{resume_id}", user_input.agent_name.value)
+        input = (
+            f"Selected part: {user_input.selection} | "
+            f"Question: {user_input.question if user_input.question else 'I need help with the selected part.'}"
+        )
+    else:
+            
+        if(user_input is None or user_input.strip() == ""):
+            print(f"❌ Invalid input from user {user_id} for resume {resume_id}")
+            return
+        
+        input = user_input
 
     async for event in graph.astream(
         {
             "messages": [
-                {"role": "user", "content": f"{user_input}"}
+                {"role": "user", "content": f"{input}"}
             ],
             "resume_schema": resume,
         },

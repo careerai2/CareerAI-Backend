@@ -38,7 +38,9 @@ def call_por_model(state: SwarmResumeState, config: RunnableConfig):
 
     print(f"[Position Of Responsibility Agent] Handling user {user_id} for resume {resume_id}")
 
-    latest_entries = state.get("resume_schema", {}).get("position_of_responsibility", [])
+    latest_entries = state.get("resume_schema", {}).get("positions_of_responsibility")
+    
+    # print(latest_entries)
 
     system_prompt = SystemMessage(
         f"""
@@ -49,14 +51,20 @@ def call_por_model(state: SwarmResumeState, config: RunnableConfig):
         1. Collect and organize Position Of Responsibility info as mentioned in the schema below.
         2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
         3. Always create or update entries using the `position_of_responsibility_tool` in real time **don't forget to provide index**.
-        4. Ask one question at a time to fill missing details.
-        5. If user asks about different section check ur tools or route them to that agent
-        6. If u didn't understand the request → call `transfer_to_main_agent`.
+        4. You can move entries using `reorder_tool & reorder_responsibilities_tool` with `MoveOperation`, it requires old_index and new_index,to move the entry,***Don't ask user for indexes brainstorm yourself you already have current entries***.
+        5. Ask one question at a time to fill missing details.
+        6. If user asks about different section check ur tools or route them to that agent
+        7. If u didn't understand the request → call `transfer_to_main_agent`.
 
 
         Position Of Responsibility Schema Context:
         ```json
         { json.dumps(PositionOfResponsibility.model_json_schema(), indent=2) }
+        ```
+        
+         Current Entries:
+        ```json
+        { json.dumps(latest_entries, indent=2) }
         ```
         """
     )
