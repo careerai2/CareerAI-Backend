@@ -12,6 +12,7 @@ class UserSignup(BaseModel):
     # phone_number: Optional[str] = None
     dob: str
     password: str
+    email_verified: bool = False
 
 class OtpVerification(BaseModel):
     email: str

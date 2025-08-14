@@ -44,15 +44,16 @@ async def signup_user(user_data: UserSignup, db: AsyncIOMotorDatabase):
             ]
         })
 
-        if existing_user and existing_user["email_verified"] == True:
+        if existing_user and existing_user.get("email_verified", False)  == True:
             return JSONResponse(
                 content={"message": "Username or email already exists"},
                 status_code=status.HTTP_400_BAD_REQUEST
             )
-        elif existing_user and existing_user["email_verified"] == False:
+        elif existing_user and existing_user.get("email_verified", False)  == False:
             hashed_password = hash_password(user_data.password)
 
             existing_user["password"] = hashed_password
+            existing_user["email_verified"] = False
 
             otp = generate_otp()
             existing_user["otp"] = otp
@@ -76,6 +77,7 @@ async def signup_user(user_data: UserSignup, db: AsyncIOMotorDatabase):
 
         user_dict = user_data.model_dump()
         user_dict["password"] = hashed_password
+        user_dict["email_verified"] = False
 
         otp = generate_otp()
         user_dict["otp"] = otp
