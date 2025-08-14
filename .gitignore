@@ -24,6 +24,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-
+central_cache
 # docker
 docker-compose.yaml
