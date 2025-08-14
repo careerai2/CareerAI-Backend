@@ -1,19 +1,21 @@
+from datetime import datetime
 from sqlmodel import SQLModel
 from pydantic import BaseModel,Field,model_validator
-from typing import Optional
+from typing import Optional,List
 
 # we can also restrict what are we taking as input
 
 
 class UserSignup(BaseModel):
     email:str
-    username: Optional[str]
-    phone_number: Optional[str] = None
+    name: Optional[str]
+    # phone_number: Optional[str] = None
+    dob: str
     password: str
-    # intro: Optional[str] = None
-   
 
-
+class OtpVerification(BaseModel):
+    email: str
+    otp: str
 
 class UserLogin(BaseModel):
     email: str
@@ -81,3 +83,12 @@ class ExtracurricularCreate(BaseModel):
     position: Optional[str] = None
     description: Optional[str] = None
     year: Optional[int] = None
+
+
+
+class UserPreferences(BaseModel):
+    industries: Optional[List[str]] = []
+    brief: Optional[str] = None
+    fileName: Optional[str] = None
+    # profile_picture: Optional[str] = None
+    

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr
-from typing import Optional, List
+from typing import Literal, Optional, List
 from datetime import datetime
 from bson import ObjectId
 
@@ -21,6 +21,13 @@ class PyObjectId(ObjectId):
 
 
 # ------------------- Nested Structures ------------------------
+class AcademicProject(BaseModel):
+    project_name: Optional[str] = None
+    project_description: Optional[str] = None
+    description_bullets: Optional[List[str]] = Field(default_factory=list)
+    duration: Optional[str] = None
+    
+    
 class Project(BaseModel):
     project_name: Optional[str] = None
     project_description: Optional[str] = None
@@ -72,6 +79,12 @@ class ExtraCurricular(BaseModel):
     description: Optional[str] = None
     year: Optional[int] = None
 
+class Certification(BaseModel):
+    certification: Optional[str] = None
+    description: Optional[str] = None
+    issuing_organization: Optional[str] = None
+    time_of_certification: Optional[int] = None
+
 class ResumeInput(BaseModel):
     input_text: Optional[str] = None
     audio_file: Optional[str] = None
@@ -88,7 +101,7 @@ class ResumeDocument(BaseModel):
     resume_data: Optional[str] = None
     summary: Optional[str] = None
     skills: List[str] = Field(default_factory=list)
-    intrests: List[str] = Field(default_factory=list)
+    interests: List[str] = Field(default_factory=list)
     languages: List[str] = Field(default_factory=list)
     
     name: Optional[str] = None  # Reference to user collection
@@ -101,6 +114,9 @@ class ResumeDocument(BaseModel):
     is_default: Optional[bool] = False
     visibility: Optional[str] = "private"
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    status: Literal["in-progress","completed"] = "in-progress"
+    
     last_modified: datetime = Field(default_factory=datetime.utcnow)
 
     completion_percentage: Optional[int] = 0
@@ -121,6 +137,8 @@ class ResumeDocument(BaseModel):
     achievements: List[ScholasticAchievement] = Field(default_factory=list)
     positions_of_responsibility: List[PositionOfResponsibility] = Field(default_factory=list)
     extra_curriculars: List[ExtraCurricular] = Field(default_factory=list)
+    academic_projects: List[AcademicProject] = Field(default_factory=list)
+    certifications: List[Certification] = Field(default_factory=list)   
 
     class Config:
         arbitrary_types_allowed = True
@@ -138,15 +156,20 @@ class ResumeLLMSchema(BaseModel):
     tailoring_keys: List[str] = []
     total_updates: int = 0        # a flag number to check,that skills and Summary are updated # will check if it is 10 yes then update and set it 0 
     skills: List[str] = []
+    interests: List[str] = []
     languages: List[str] = []
     external_links: List[str] = []
     resume_inputs: List[ResumeInput] = []
+    status: Literal["in-progress","completed"] = "in-progress"  # can be in-progress, completed
+    updated_at: Optional[datetime] = Field(default_factory=datetime.now().isoformat())
     education_entries: List[Education] = []
     work_experiences: List[WorkExperience] = []
     internships: List[Internship] = []
     achievements: List[ScholasticAchievement] = []
     positions_of_responsibility: List[PositionOfResponsibility] = []
     extra_curriculars: List[ExtraCurricular] = []
+    certifications: List[Certification] = []
+    academic_projects: List[AcademicProject] = []
 
     class Config:
         arbitrary_types_allowed = True

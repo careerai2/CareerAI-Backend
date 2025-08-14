@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.INFO)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace "*" with your frontend URL for better security
+    allow_origins=["http://localhost:5173"],  # Replace "*" with your frontend URL for better security
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -92,10 +92,11 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: As
         while True:
             user_input = await websocket.receive_json()
 
-            if user_input["type"] == "update_resume":
+            if user_input["type"] == "save_resume":
                 thread_id = f"{user['_id']}:{resume_id}"
                 await update_resume_state(thread_id, user_input["resume"])
-                await websocket.send_json({"type": "system", "message": "Resume updated in agent state"})
+                print("LLM Resume state updated")
+                # await websocket.send_json({"type": "system", "message": "Resume updated in agent state"})
 
             elif user_input["type"] == "chat":
                 await stream_graph_to_websocket(

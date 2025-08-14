@@ -38,16 +38,17 @@ def call_model(state: SwarmResumeState, config: RunnableConfig):
 
             **Your Knowledge & Context:**  
             - The overall resume is represented by the `ResumeLLMSchema`, which has sections like:  
-            1.**You can handle toplevel fields like name, title, summary, email, skills, and phone_number.Update in real time if data available**
+            1.**You can handle toplevel fields like name, title, summary, email, skills,interests, and phone_number.Update in real time if data available**
             2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
             3. **For Skills, you can provide a list of skills relevant to the job.**
-            4. **Education** → handled by Education Agent  
-            5. **Internships** → handled by Internship Agent  
-            6. **Work Experience** → handled by Work Experience Agent
-            7. **Extra Curriculars** → handled by Extra Curricular Agent  
-            8. **Positions of Responsibility** → handled by Positions of Responsibility Agent
-            9. **Scholastic Achievements** → handled by Scholastic Achievements Agent
-            10. **You should respond in short and concise sentences, don't ask a lot of questions in a single message.**.
+            4. **For Interests, User will say to add/update or delete interests or u can also ask them.**
+            5. **Education** → handled by Education Agent  
+            6. **Internships** → handled by Internship Agent  
+            7. **Work Experience** → handled by Work Experience Agent
+            8. **Extra Curriculars** → handled by Extra Curricular Agent  
+            9. **Positions of Responsibility** → handled by Positions of Responsibility Agent
+            10. **Scholastic Achievements** → handled by Scholastic Achievements Agent
+            11. **You should respond in short and concise sentences, don't ask a lot of questions in a single message.**.
 
             **Resume Schema Context:**  
             ```json

@@ -59,5 +59,5 @@ async def parse_user_audio_input(user_input: str, user_id: str):
         result = await chain.ainvoke({"user_input": user_input})
         return result
     except Exception as e:
-        print("LLM raw output caused error, check prompt and schema alignment.")
+        print("LLM raw output caused error, check prompt and schema alignment.",e)
         raise e

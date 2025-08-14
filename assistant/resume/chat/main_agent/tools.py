@@ -10,10 +10,10 @@ from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
 
 
 # Now skills is also allowed
-ALLOWED_FIELDS = {"title", "summary", "name", "email", "phone_number", "skills"}
+ALLOWED_FIELDS = {"title", "summary", "name", "email", "phone_number", "skills","interests"}
 
 class TopLevelFieldUpdateInput(BaseModel):
-    field: Literal["title", "summary", "name", "email", "phone_number", "skills"]
+    field: Literal["title", "summary", "name", "email", "phone_number", "skills","interests"]
     value: Union[str, EmailStr, list[str]]
 
     @field_validator("value", mode="before")
@@ -36,13 +36,13 @@ class TopLevelFieldUpdateInput(BaseModel):
     parse_docstring=False,
 )
 async def update_top_level_field(
-    field: Literal["title", "summary", "name", "email", "phone_number", "skills"],
+    field: Literal["title", "summary", "name", "email", "phone_number", "skills","interests"],
     value: Union[str, EmailStr, list[str]],
     config: RunnableConfig,
 ) -> None:
     """
     Updates a top-level field in the resume.
-    If the field is list type (like skills), the given list is appended (no duplicates).
+    If the field is list type (like skills,interests), the given list is appended (no duplicates).
     """
     try:
         user_id = config["configurable"].get("user_id")
@@ -59,7 +59,7 @@ async def update_top_level_field(
             raise ValueError(f"Field '{field}' is not allowed to be updated via this tool.")
 
         # Handle list fields differently
-        if field == "skills":
+        if field == "skills" or field == "interests":
             if field not in resume or not isinstance(resume[field], list):
                 resume[field] = []
             existing_values = set(resume[field])

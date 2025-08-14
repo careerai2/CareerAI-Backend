@@ -2,7 +2,6 @@ from fastapi import Depends, status
 from fastapi.responses import JSONResponse,Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select,or_,desc
-# from db import get_session
 from models.user_model import *
 from validation.user_types import *
 from utils.jwt import create_jwt
@@ -22,6 +21,15 @@ from utils.convert_objectIds import convert_objectids
 from models.resume_model import ResumeLLMSchema
 from sqlalchemy.ext.asyncio import AsyncSession
 from models.chat_msg_model import ChatMessage
+import random
+from utils.send_otp import send_otp_email
+from assistant.resume.parse_userAudio_input import parse_user_audio_input
+from validation.resume_validation import ResumeModel
+
+
+
+def generate_otp() -> str:
+    return str(random.randint(100000, 999999))
 
 async def signup_user(user_data: UserSignup, db: AsyncIOMotorDatabase):
     try:
@@ -32,15 +40,36 @@ async def signup_user(user_data: UserSignup, db: AsyncIOMotorDatabase):
         existing_user = await users_collection.find_one({
             "$or": [
                 {"email": user_data.email},
-                {"username": user_data.username}
+                {"username": user_data.name}
             ]
         })
 
-        if existing_user:
+        if existing_user and existing_user["email_verified"] == True:
             return JSONResponse(
                 content={"message": "Username or email already exists"},
                 status_code=status.HTTP_400_BAD_REQUEST
             )
+        elif existing_user and existing_user["email_verified"] == False:
+            hashed_password = hash_password(user_data.password)
+
+            existing_user["password"] = hashed_password
+
+            otp = generate_otp()
+            existing_user["otp"] = otp
+
+            # Send OTP to user's email
+            res = await send_otp_email(user_data.email, otp)
+
+            print(f"Response for {otp}", res)
+
+            # Insert user
+            await users_collection.update_one({"_id": existing_user["_id"]}, {"$set": existing_user})
+
+            return JSONResponse(
+                content={"message": "OTP sent to your email"},
+                status_code=status.HTTP_201_CREATED
+            )
+            
 
         # Hash password
         hashed_password = hash_password(user_data.password)
@@ -48,16 +77,19 @@ async def signup_user(user_data: UserSignup, db: AsyncIOMotorDatabase):
         user_dict = user_data.model_dump()
         user_dict["password"] = hashed_password
 
+        otp = generate_otp()
+        user_dict["otp"] = otp
+
+        # Send OTP to user's email
+        res = await send_otp_email(user_data.email, otp)
+
+        print(f"Response for {otp}", res)
+
         # Insert user
-        insert_result = await users_collection.insert_one(user_dict)
-
-        # Generate JWT
-        token = create_jwt(user_id=str(insert_result.inserted_id), role="user")
-        if not token:
-            raise Exception("Failed to generate JWT token")
-
+        await users_collection.insert_one(user_dict)
+        
         return JSONResponse(
-            content={"message": "User created successfully", "access_token": token, "role": "user"},
+            content={"message": "OTP sent to your email"},
             status_code=status.HTTP_201_CREATED
         )
 
@@ -69,15 +101,67 @@ async def signup_user(user_data: UserSignup, db: AsyncIOMotorDatabase):
         )
 
 
+async def verify_otp(otp_data: OtpVerification, db: AsyncIOMotorDatabase):
+    try:
+        print("OTP verification data =", otp_data)
+        users_collection = db.get_collection("users")
+
+        # Find user with the given email and OTP
+        existing_user = await users_collection.find_one({
+            "email": otp_data.email,
+            "otp": otp_data.otp
+        })
+
+        if not existing_user:
+            return JSONResponse(
+                content={"message": "Invalid OTP or user not found"},
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Update user to mark email as verified and remove OTP
+        update_result = await users_collection.update_one(
+            {"_id": existing_user["_id"]},
+            {"$set": {"email_verified": True}, "$unset": {"otp": ""}}
+        )
+
+        if update_result.modified_count == 0:
+            return JSONResponse(
+                content={"message": "Failed to verify email"},
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # Generate JWT
+        token = create_jwt(user_id=str(existing_user["_id"]), role="user")
+        if not token:
+            raise Exception("Failed to generate JWT token")
+
+        return JSONResponse(
+            content={
+                "message": "Email verified successfully",
+                "access_token": token,
+                "role": "user"
+            },
+            status_code=status.HTTP_200_OK
+        )
+
+    except Exception as e:
+        print(f"Error during OTP verification: {e}")
+        return JSONResponse(
+            content={"message": f"An error occurred: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
 async def login_user(user_data: UserLogin, db: AsyncIOMotorDatabase):
     try:
         users_collection = db.get_collection("users")
 
         # Find user by email
-        user = await users_collection.find_one({"email": user_data.email})
+        user = await users_collection.find_one({"email": user_data.email, "email_verified": True})
+
         if not user:
             return JSONResponse(
-                content={"message": "Invalid username or password"},
+                content={"message": "User not found.SignUp please"},
                 status_code=status.HTTP_401_UNAUTHORIZED
             )
 
@@ -152,12 +236,10 @@ async def google_auth(user_data: GoogleAuth_Input, db: AsyncIOMotorDatabase):
 
 
 # get user by ID
-async def get_user_by_id(user_id: int, session: AsyncSession):
+async def get_user_by_id(user_id: int, db: AsyncIOMotorDatabase):
     try:
-        stmt = select(User.id, User.username, User.intro).where(User.id == user_id)
-        result = await session.execute(stmt)
-        user = result.scalar_one_or_none()
-        print(user)
+        user = await db["users"].find_one({"_id": user_id})
+        # print(user)
 
         if not user:
             return JSONResponse(
@@ -165,8 +247,15 @@ async def get_user_by_id(user_id: int, session: AsyncSession):
                 status_code=status.HTTP_404_NOT_FOUND
             )
 
+        user_data = {
+            # "id": user["_id"],
+            "email": user["email"],
+            "name": user["name"],
+            # "intro": user["intro"]
+        }
+
         return JSONResponse(
-            content=user.model_dump(),
+            content={"user": user_data},
             status_code=status.HTTP_200_OK
         )
 
@@ -177,178 +266,44 @@ async def get_user_by_id(user_id: int, session: AsyncSession):
         )
         
         
-# add education
-async def add_education(user_id: int, education_data: EducationCreate, session: AsyncSession):
+# get user preferences
+async def get_user_preferences(user_id: int, db: AsyncIOMotorDatabase):
     try:
-        # Create new education entry
-        education_entry = Education(user_id=user_id, **education_data.model_dump())
-        session.add(education_entry)
-        await session.commit()
-        await session.refresh(education_entry)
+        user = await db["users"].find_one({"_id": user_id})
+        # print(user)
 
-        return JSONResponse(
-            content={"message": "Education added successfully"},
-            status_code=status.HTTP_201_CREATED
-        )
+        if not user:
+            return JSONResponse(
+                content={"message": "User not found"},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
 
-    except Exception as e:
-        return JSONResponse(
-            content={"message": f"An error occurred: {str(e)}"},
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
-
-# add Work Experience
-async def add_work_experience(user_id: int, work_experience_data: WorkExperienceCreate, session: AsyncSession):
-    try:
-        # Create new work experience entry
-        work_experience_entry = WorkExperience(user_id=user_id, **work_experience_data.model_dump())
-        session.add(work_experience_entry)
-        await session.commit()
-        await session.refresh(work_experience_entry)
-
-        return JSONResponse(
-            content={"message": "Work Experience added successfully"},
-            status_code=status.HTTP_201_CREATED
-        )
-
-    except Exception as e:
-        return JSONResponse(
-            content={"message": f"An error occurred: {str(e)}"},
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-        
-# add Internship
-async def add_internship(user_id: int, internship_data: InternshipCreate, session: AsyncSession):
-    try:
-        # Create new internship entry
-        internship_entry = Internship(user_id=user_id, **internship_data.model_dump())
-
-        session.add(internship_entry)
-        await session.commit()
-        await session.refresh(internship_entry)
-
-        return JSONResponse(
-            content={"message": "Internship added successfully"},
-            status_code=status.HTTP_201_CREATED
-        )
-
-    except Exception as e:
-        return JSONResponse(
-            content={"message": f"An error occurred: {str(e)}"},
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-# add Achievement
-async def add_achievement(user_id: int, achievement_data: AchievementCreate, session: AsyncSession):
-    try:
-        # Create new achievement entry
-        achievement_entry = ScholasticAchievement(user_id=user_id, **achievement_data.model_dump())
-
-        session.add(achievement_entry)
-        await session.commit()
-        await session.refresh(achievement_entry)
-
-        return JSONResponse(
-            content={"message": "Achievement added successfully"},
-            status_code=status.HTTP_201_CREATED
-        )
-
-    except Exception as e:
-        return JSONResponse(
-            content={"message": f"An error occurred: {str(e)}"},
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-        
-        
-        
-# add Position of Responsibility
-async def add_por(user_id: int, por_data: PositionOfResponsibilityCreate, session: AsyncSession):
-    try:
-        # Create new position of responsibility entry
-        por_entry = PositionOfResponsibility(user_id=user_id, **por_data.model_dump())
-
-        session.add(por_entry)
-        await session.commit()
-        await session.refresh(por_entry)
-
-        return JSONResponse(
-            content={"message": "Position of Responsibility added successfully"},
-            status_code=status.HTTP_201_CREATED
-        )
-
-    except Exception as e:
-        return JSONResponse(
-            content={"message": f"An error occurred: {str(e)}"},
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )   
-        
-
-# add Extracurricular
-async def add_extracurricular(user_id: int, extracurricular_data: ExtracurricularCreate, session: AsyncSession):
-    try:
-        # Create new extracurricular entry
-        extracurricular_entry = ExtraCurricular(user_id=user_id, **extracurricular_data.model_dump())
-
-        session.add(extracurricular_entry)
-        await session.commit()
-        await session.refresh(extracurricular_entry)
-
-        return JSONResponse(
-            content={"message": "Extracurricular activity added successfully"},
-            status_code=status.HTTP_201_CREATED
-        )
-
-    except Exception as e:
-        return JSONResponse(
-            content={"message": f"An error occurred: {str(e)}"},
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-        
-        
-#helper function for get-resume
-
-async def fetch_and_dump(session: AsyncSession, user_id: int, model: Type) -> List[Dict[str, Any]]:
-    stmt = select(model).where(model.user_id == user_id)
-    result = await session.execute(stmt)
-    return [obj.model_dump() for obj in result.scalars()]
-
-# get Resume
-async def get_all_resume(user_id: int, session: AsyncSession):
-    try:
-        # Model mapping for sections
-        model_map = {
-            "education": Education,
-            "work_experience": WorkExperience,
-            "internships": Internship,
-            "achievements": ScholasticAchievement,
-            "positions_of_responsibility": PositionOfResponsibility,
-            "extracurriculars": ExtraCurricular,
+        user_pref = {
+            "industries": user["industries"],
+            "brief": user["brief"]
         }
 
-        resume_data: Dict[str, Any] = {}
-
-        # Fetch each section dynamically
-        for section, model in model_map.items():
-            resume_data[section] = await fetch_and_dump(session,user_id, model)
-
-        return JSONResponse(content=resume_data, status_code=status.HTTP_200_OK)
+        return JSONResponse(
+            content= user_pref,
+            status_code=status.HTTP_200_OK
+        )
 
     except Exception as e:
         return JSONResponse(
-            content={"message": f"An error occurred while generating resume: {str(e)}"},
+            content={"message": f"An error occurred: {str(e)}"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-    
         
-#extract resume from user audio input
-from assistant.resume.parse_userAudio_input import parse_user_audio_input
-from validation.resume_validation import ResumeModel
 
 
-async def extract_resume_from_audio(user_input: str, template: str, user_id: str, db: AsyncIOMotorDatabase):
+async def create_resume(template: str, user_id: str, db: AsyncIOMotorDatabase):
     try:
+        user = await db.get_collection("users").find_one({"_id": ObjectId(user_id)})
+
+        if user:
+            user_input = user["brief"]
+        else:
+            user_input = ""
         # Call your parsing logic — assuming it returns a valid SQLModel instance
         resume_entry: ResumeModel = await parse_user_audio_input(user_input, user_id)
 
@@ -356,7 +311,7 @@ async def extract_resume_from_audio(user_input: str, template: str, user_id: str
         resume = await db.get_collection("resumes").insert_one({
             "user_id": user_id,
             **resume_entry.model_dump(),
-            "template": template
+            "template": template or ""
         })
 
         # Update Redis cache
@@ -434,6 +389,32 @@ async def get_resume_by_Id(resume_id: str, user_id: str, db: AsyncIOMotorDatabas
             content={"message": f"An error occurred while fetching resume: {str(e)}"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+async def delete_resume_by_Id(resume_id: str, user_id: str, db: AsyncIOMotorDatabase):
+    try:
+        r.delete(f"resume:{user_id}:{resume_id}")  # Remove from Redis cache
+        
+        resumes = await db.get_collection("resumes").delete_one({"_id": ObjectId(resume_id), "user_id": user_id})
+        if resumes.deleted_count == 0:
+            return JSONResponse(
+                content={"message": "Resume not found"},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        return JSONResponse(
+            content={"message": "Resume deleted successfully"},
+            status_code=status.HTTP_200_OK
+        )
+
+    except Exception as e:
+        print(f"Error deleting resume: {e}")
+        return JSONResponse(
+            content={"message": f"An error occurred while deleting resume: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+
 async def get_resume_chat_msgs(resume_id: str, user_id: str, db: AsyncSession):
     try:
         result = await db.execute(
@@ -475,7 +456,7 @@ async def get_resume_chat_msgs(resume_id: str, user_id: str, db: AsyncSession):
             content={"message": f"An error occurred while fetching chat messages: {str(e)}"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-        
+      
         
 
 async def get_all_resumes_by_user(user_id: str, db: AsyncIOMotorDatabase):
@@ -485,7 +466,7 @@ async def get_all_resumes_by_user(user_id: str, db: AsyncIOMotorDatabase):
         # Project only title and template fields (+ _id if needed)
         cursor = resume_collection.find(
             {"user_id": user_id},
-            {"title": 1, "template": 1,"_id":1}  # include only these fields
+            {"title": 1, "template": 1,"_id":1,"status": 1}  # include only these fields
         )
         resumes = await cursor.to_list(length=None)
 
@@ -494,12 +475,53 @@ async def get_all_resumes_by_user(user_id: str, db: AsyncIOMotorDatabase):
             resume["_id"] = str(resume["_id"])
 
         return JSONResponse(
-            content={"resumes": resumes},
+            content=resumes,
             status_code=status.HTTP_200_OK
         )
 
     except Exception as e:
         return JSONResponse(
             content={"message": f"An error occurred while fetching resumes: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+
+async def set_preferences_for_user(user_id: str, preferences: UserPreferences, db: AsyncIOMotorDatabase):
+    try:
+        user = await db["users"].find_one({"_id": user_id})
+        # print(user)
+
+        if not user:
+            return JSONResponse(
+                content={"message": "User not found"},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+            
+        update_fields = preferences.model_dump(exclude_none=True)
+        
+        if not update_fields:
+            return JSONResponse(
+                content={"message": "No valid preferences provided to update"},
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Update user preferences
+        result = await db["users"].update_one({"_id": user_id}, {"$set": update_fields})
+
+        if result.modified_count == 0:
+            return JSONResponse(
+                content={"message": "No changes made to user preferences"},
+                status_code=status.HTTP_200_OK
+            )
+
+        return JSONResponse(
+            content={"message": "User preferences updated successfully"},
+            status_code=status.HTTP_200_OK
+        )
+
+    except Exception as e:
+        return JSONResponse(
+            content={"message": f"An error occurred while updating user preferences: {str(e)}"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

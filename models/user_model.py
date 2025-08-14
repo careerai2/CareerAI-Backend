@@ -4,6 +4,7 @@ from datetime import datetime
 from bson import ObjectId
 from pydantic.json_schema import JsonSchemaValue
 from typing import Any
+from datetime import datetime
 
 
 # MongoDB ObjectId wrapper for validation
@@ -32,14 +33,18 @@ class PyObjectId(ObjectId):
 class UserCreate(BaseModel):
     email: EmailStr
     username: Optional[str]
-    phone_number: Optional[str]
+    # phone_number: Optional[str]
     password: Optional[str] = None  # should be hashed before saving
+    dob: Optional[str] = None  # Date of birth
     otp: Optional[int] = None  # One-time password for verification
     otp_expiry: Optional[datetime] = None  # Expiry time for OTP
-    email_verified: bool = False  # Flag to check if email is verified
+    email_verified: bool = Field(default=False)  # Flag to check if email is verified
+    industries: Optional[list[str]] = []
+    brief: Optional[str] = None
+    fileName: Optional[str] = None
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     auth_provider: Optional[str] = Field(default="custom")  # "custom" or "google"
-    profile_pictire:Optional[str] = None
+    profile_picture: Optional[str] = None
 
     model_config = {
         "json_schema_extra": {
