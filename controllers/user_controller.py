@@ -282,7 +282,8 @@ async def get_user_preferences(user_id: int, db: AsyncIOMotorDatabase):
 
         user_pref = {
             "industries": user["industries"],
-            "brief": user["brief"]
+            "brief": user["brief"],
+            "level": user.get("level", None),
         }
 
         return JSONResponse(
@@ -298,14 +299,16 @@ async def get_user_preferences(user_id: int, db: AsyncIOMotorDatabase):
         
 
 
-async def create_resume(template: str, user_id: str, db: AsyncIOMotorDatabase):
+async def create_resume(template: str, file: str | None, tailoring_keys: list[str], user_id: str, db: AsyncIOMotorDatabase):
     try:
         user = await db.get_collection("users").find_one({"_id": ObjectId(user_id)})
 
         if user:
             user_input = user["brief"]
         else:
-            user_input = ""
+            user_input = "No user input provided"
+            
+        # print(file,tailoring_keys,user_input)
         # Call your parsing logic — assuming it returns a valid SQLModel instance
         resume_entry: ResumeModel = await parse_user_audio_input(user_input, user_id)
 
@@ -313,11 +316,13 @@ async def create_resume(template: str, user_id: str, db: AsyncIOMotorDatabase):
         resume = await db.get_collection("resumes").insert_one({
             "user_id": user_id,
             **resume_entry.model_dump(),
+            "tailoring_keys": tailoring_keys,
             "template": template or ""
         })
+        
 
         # Update Redis cache
-        r.set(f"resume:{user_id}:{resume.inserted_id}", json.dumps({**convert_objectids(resume_entry.model_dump()), "template": template}))
+        r.set(f"resume:{user_id}:{resume.inserted_id}", json.dumps({**convert_objectids(resume_entry.model_dump()),"tailoring_keys": tailoring_keys, "template": template}))
 
         # Return serialized response
         return JSONResponse(

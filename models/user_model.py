@@ -41,6 +41,7 @@ class UserCreate(BaseModel):
     email_verified: bool = Field(default=False)  # Flag to check if email is verified
     industries: Optional[list[str]] = []
     brief: Optional[str] = None
+    level: Optional[str] = None
     fileName: Optional[str] = None
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     auth_provider: Optional[str] = Field(default="custom")  # "custom" or "google"

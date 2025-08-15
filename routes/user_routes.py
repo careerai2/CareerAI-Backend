@@ -24,15 +24,21 @@ async def get_preference(request: Request, db: AsyncIOMotorDatabase = Depends(ge
 
 
 class ResumeInput(BaseModel):
+    file: str | None = None
+    industry: str | None = None
+
+class ResumeInput(BaseModel):
     template: str = "MinimalistTemplate"
+    data: ResumeInput
+    # tailoring_keys: str
 
 @router.post("/create-resume")
 async def createResume(request: Request, resume_input: ResumeInput, db: AsyncIOMotorDatabase = Depends(get_database)):
     # print(f"User Input for Resume Extraction: {resume_input.user_input}")
-    print(request)
-    print(resume_input)
+    # print(request)
+    # print(resume_input)
     user_id = request.state.user["_id"]
-    return await create_resume(resume_input.template, user_id, db)
+    return await create_resume(resume_input.template, resume_input.data.file, [resume_input.data.industry], user_id, db)
 
 
 

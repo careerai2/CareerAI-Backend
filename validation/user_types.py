@@ -91,5 +91,7 @@ class UserPreferences(BaseModel):
     industries: Optional[List[str]] = []
     brief: Optional[str] = None
     fileName: Optional[str] = None
+    level: Optional[str] = None
+    
     # profile_picture: Optional[str] = None
     
