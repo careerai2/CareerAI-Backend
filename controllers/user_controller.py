@@ -1,10 +1,10 @@
-from fastapi import Depends, status
+from fastapi import Depends, status,UploadFile, File
 from fastapi.responses import JSONResponse,Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select,or_,desc
 from models.user_model import *
 from validation.user_types import *
-from utils.jwt import create_jwt
+from utils.extract_pdf import extract_text_from_pdf
 from utils.security import hash_password,verify_password
 from typing import Dict, Any, List,Type
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -267,50 +267,29 @@ async def get_user_by_id(user_id: int, db: AsyncIOMotorDatabase):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
         
-        
-# get user preferences
-async def get_user_preferences(user_id: int, db: AsyncIOMotorDatabase):
+
+
+async def create_resume(template: str, tailoring_keys: list[str], user_id: str, db: AsyncIOMotorDatabase, file: Optional[UploadFile] = File(None)):
     try:
-        user = await db["users"].find_one({"_id": user_id})
-        # print(user)
-
-        if not user:
-            return JSONResponse(
-                content={"message": "User not found"},
-                status_code=status.HTTP_404_NOT_FOUND
-            )
-
-        user_pref = {
-            "industries": user["industries"],
-            "brief": user["brief"],
-            "level": user.get("level", None),
-        }
-
-        return JSONResponse(
-            content= user_pref,
-            status_code=status.HTTP_200_OK
-        )
-
-    except Exception as e:
-        return JSONResponse(
-            content={"message": f"An error occurred: {str(e)}"},
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
         
-
-
-async def create_resume(template: str, file: str | None, tailoring_keys: list[str], user_id: str, db: AsyncIOMotorDatabase):
-    try:
         user = await db.get_collection("users").find_one({"_id": ObjectId(user_id)})
 
-        if user:
+        user_input = ""
+        
+        if user and user.get("brief"):    
             user_input = user["brief"]
-        else:
-            user_input = "No user input provided"
-            
+
+
+        if file:
+            resume_input = await extract_text_from_pdf(file)
+            user_input = user_input + "\n" + resume_input if resume_input else ""
+        elif user.get("base_resume"):
+            user_input += "\n" + user["base_resume"]
+
+
         # print(file,tailoring_keys,user_input)
         # Call your parsing logic — assuming it returns a valid SQLModel instance
-        resume_entry: ResumeModel = await parse_user_audio_input(user_input, user_id)
+        resume_entry: ResumeLLMSchema = await parse_user_audio_input(user_input,user_id)
 
         # Save to db
         resume = await db.get_collection("resumes").insert_one({
@@ -334,6 +313,7 @@ async def create_resume(template: str, file: str | None, tailoring_keys: list[st
         )
 
     except Exception as e:
+        print(f"Error creating resume: {e}")
         return JSONResponse(
             content={"message": f"An error occurred while extracting resume: {str(e)}"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -494,8 +474,14 @@ async def get_all_resumes_by_user(user_id: str, db: AsyncIOMotorDatabase):
 
 
 
-async def set_preferences_for_user(user_id: str, preferences: UserPreferences, db: AsyncIOMotorDatabase):
+async def set_preferences_for_user(user_id: str, preferences: UserPreferences, db: AsyncIOMotorDatabase,file: Optional[UploadFile] = File(None)):
     try:
+        
+        # print(preferences)
+        # print(file.filename if file else None)
+        
+        
+        # return
         user = await db["users"].find_one({"_id": user_id})
         # print(user)
 
@@ -507,6 +493,12 @@ async def set_preferences_for_user(user_id: str, preferences: UserPreferences, d
             
         update_fields = preferences.model_dump(exclude_none=True)
         
+        if file:
+            file_data = await extract_text_from_pdf(file)
+            # print(f"Extracted text from PDF: {file_data[:10000]}...")  # debug first 100 chars
+            update_fields["base_resume"] = file_data if file_data else None
+            update_fields["file_name"] = file.filename if file else None
+
         if not update_fields:
             return JSONResponse(
                 content={"message": "No valid preferences provided to update"},
@@ -528,7 +520,41 @@ async def set_preferences_for_user(user_id: str, preferences: UserPreferences, d
         )
 
     except Exception as e:
+        print(f"Error updating user preferences: {e}")
         return JSONResponse(
             content={"message": f"An error occurred while updating user preferences: {str(e)}"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+        
+        
+        
+# get user preferences
+async def get_user_preferences(user_id: int, db: AsyncIOMotorDatabase):
+    try:
+        user = await db["users"].find_one({"_id": user_id})
+        # print(user)
+
+        if not user:
+            return JSONResponse(
+                content={"message": "User not found"},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        user_pref = {
+            "industries": user["industries"],
+            "brief": user["brief"],
+            "level": user.get("level", None),
+            "fileName": user.get("file_name", None)
+        }
+
+        return JSONResponse(
+            content= user_pref,
+            status_code=status.HTTP_200_OK
+        )
+
+    except Exception as e:
+        return JSONResponse(
+            content={"message": f"An error occurred: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+        

@@ -42,7 +42,8 @@ class UserCreate(BaseModel):
     industries: Optional[list[str]] = []
     brief: Optional[str] = None
     level: Optional[str] = None
-    fileName: Optional[str] = None
+    file_name: Optional[str] = None  #file name of which data is filled in base_resume
+    base_resume: Optional[str] = None
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     auth_provider: Optional[str] = Field(default="custom")  # "custom" or "google"
     profile_picture: Optional[str] = None

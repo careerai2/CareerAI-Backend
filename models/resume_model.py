@@ -113,11 +113,11 @@ class ResumeDocument(BaseModel):
     template: Optional[str] = None
     is_default: Optional[bool] = False
     visibility: Optional[str] = "private"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.now().isoformat())
+    updated_at: datetime = Field(default_factory=datetime.now().isoformat())
     status: Literal["in-progress","completed"] = "in-progress"
-    
-    last_modified: datetime = Field(default_factory=datetime.utcnow)
+
+    # last_modified: datetime = Field(default_factory=datetime.now().isoformat())
 
     completion_percentage: Optional[int] = 0
     is_verified: Optional[bool] = False
@@ -161,7 +161,7 @@ class ResumeLLMSchema(BaseModel):
     external_links: List[str] = []
     resume_inputs: List[ResumeInput] = []
     status: Literal["in-progress","completed"] = "in-progress"  # can be in-progress, completed
-    updated_at: Optional[datetime] = Field(default_factory=datetime.now().isoformat())
+    last_modified: Optional[datetime] = Field(default_factory=datetime.now().isoformat())
     education_entries: List[Education] = []
     work_experiences: List[WorkExperience] = []
     internships: List[Internship] = []

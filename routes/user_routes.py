@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request,Depends
+from fastapi import APIRouter, Request,Depends,Form
 from controllers.user_controller import *
 from sqlalchemy.ext.asyncio import AsyncSession
 from validation.user_types import * 
@@ -33,14 +33,16 @@ class ResumeInput(BaseModel):
     # tailoring_keys: str
 
 @router.post("/create-resume")
-async def createResume(request: Request, resume_input: ResumeInput, db: AsyncIOMotorDatabase = Depends(get_database)):
-    # print(f"User Input for Resume Extraction: {resume_input.user_input}")
-    # print(request)
-    # print(resume_input)
+async def createResume(
+    request: Request,
+    template: str = Form(...),
+    industry: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    db: AsyncIOMotorDatabase = Depends(get_database),
+):
     user_id = request.state.user["_id"]
-    return await create_resume(resume_input.template, resume_input.data.file, [resume_input.data.industry], user_id, db)
-
-
+    tailoring_keys = [industry]
+    return await create_resume(template, tailoring_keys, user_id, db, file)
 
 @router.get("/get-resume/{resume_id}")
 async def get_resume(
@@ -82,13 +84,30 @@ async def get_all_resumes(request: Request,session: AsyncSession = Depends(get_d
     return await get_all_resumes_by_user(user_id, session)
 
 
-
+class PreferenceRequest(BaseModel):
+    preferences: UserPreferences
+    file: Optional[str] = None
+    
 @router.patch("/set-preference")
-async def set_user_preferences(request: Request, preferences: UserPreferences, session: AsyncSession = Depends(get_database)):
+async def set_user_preferences(
+    request: Request,
+    preferences: str = Form(...),                  # JSON string in FormData
+    file: Optional[UploadFile] = File(None),       # actual file
+    session: AsyncSession = Depends(get_database)
+):
     user_id = request.state.user["_id"]
-    return await set_preferences_for_user(user_id, preferences, session)
 
+    # Parse JSON string into Pydantic model
+    prefs = UserPreferences.model_validate_json(preferences)
 
+    return await set_preferences_for_user(
+        user_id=user_id,
+        preferences=prefs,
+        db=session,
+        file=file
+    )
+    
+    
 @router.put("/save-resume")
 async def set_user_preferences(request: Request, resumeData: ResumeLLMSchema, session: AsyncSession = Depends(get_database)):
     user_id = request.state.user["_id"]
