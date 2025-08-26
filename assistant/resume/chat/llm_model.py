@@ -9,7 +9,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",  # ✅ Correct model name
+    # model="gemini-2.5-flash",  # ✅ Correct model name
+    model="gemini-2.5-flash-lite",  # ✅ Correct model name
     temperature=0,
     max_output_tokens=1024
 )

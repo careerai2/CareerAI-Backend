@@ -11,9 +11,72 @@ from langchain_core.runnables import RunnableConfig
 from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
 from ..utils.update_summar_skills import update_summary_and_skills
 from ..handoff_tools import *
+from redis_config import redis_client as r
+
+
+@tool
+def get_compact_internship_entries(config: RunnableConfig):
+    """
+    Get all internship entries in a concise format.
+    Returns: list of dicts with only non-null fields.
+    """
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        entries_raw = r.get(f"resume:{user_id}:{resume_id}")
+        resume_data = json.loads(entries_raw) if entries_raw else {}
+        entries = resume_data.get("internships", [])
+
+        # Filter out None or empty entries
+        entries = [e for e in entries if e and isinstance(e, dict)]
+
+        compact = []
+        for i, e in enumerate(entries):
+            # Build dict with only non-null and non-empty fields
+            entry_dict = {
+                "index": i,
+                **{k: v for k, v in {
+                    "company_name": e.get("company_name"),
+                    "company_description": e.get("company_description"),
+                    "designation": e.get("designation"), 
+                    "designation_description": e.get("designation_description"), 
+                    "location": e.get("location"),
+                    "duration": e.get("duration"),
+                }.items() if v not in [None, "", [], {}]}  # remove null/empty values
+            }
+
+            compact.append(entry_dict)
+
+        print("Compact entries:", compact)
+        return compact
+
+    except Exception as e:
+        print(f"Error in get_compact_internship_entries: {e}")
+        return []
+
+
+@tool
+def get_internship_entry_by_index(index: int, config: RunnableConfig):
+    """
+    Get a single internship entry by index.
+    Returns full entry including all bullets.
+    """
+    user_id = config["configurable"].get("user_id")
+    resume_id = config["configurable"].get("resume_id")
+    
+    
+    entries = r.get(f"resume:{user_id}:{resume_id}:internships") or []
+    
+    if index is not None and 0 <= index < len(entries):
+        print(entries[index])
+        return entries[index]
+    else:
+        return {"error": "Invalid index or entry not found"}
+
 
 class InternshipToolInput(BaseModel):
-    type: Literal["add", "update", "delete"] = "add"  # Default operation
+    type: Literal["add", "update", "delete"]  # Default operation
     updates: Optional[Internship] = None
     index: Optional[int] = None  # Required for update/delete
 
@@ -41,9 +104,9 @@ class InternshipToolInput(BaseModel):
 async def internship_Tool(
     index: int,
     config: RunnableConfig,
-    type: Literal["add", "update", "delete"] = "add",
+    type: Literal["add", "update", "delete"],
     updates: Optional[Internship] = None,
-) -> None:
+):
     """Add, update, or delete an internship entry in the user's resume. 
     Index is required for update/delete operations.
     """
@@ -59,11 +122,6 @@ async def internship_Tool(
         if type in ["update", "delete"] and index is None:
             raise ValueError("Index is required for update/delete operation.")
 
-        print({
-            "updates": updates,
-            "type": type,
-            "index": index
-        })
 
         # Deep copy for JSON patch
         new_resume = get_resume(user_id, resume_id)
@@ -93,9 +151,7 @@ async def internship_Tool(
             else:
                 raise IndexError("Index out of range for internship entries.")
         
-        
-        print("Total updates:", new_resume["total_updates"])
-        
+    
         
         if new_resume.get("total_updates") > 5:
             updated_service = await update_summary_and_skills(new_resume, new_resume.get("tailoring_keys", []))
@@ -116,10 +172,11 @@ async def internship_Tool(
 
         print(f"✅ Internship section updated for {user_id}")
 
-        return new_resume
+        return {"status": "success"}
 
     except Exception as e:
         print(f"❌ Error updating internship for user {user_id}: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 
@@ -201,10 +258,11 @@ async def reorder_Tool(
 
         print(f"✅ Internship section reordered for {user_id}")
 
-        return new_resume
+        return {"status": "success"}
 
     except Exception as e:
         print(f"❌ Error reordering Internships for user: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 
@@ -270,15 +328,19 @@ async def reorder_bullet_points_tool(
         await send_patch_to_frontend(user_id, new_resume)
 
         print(f"✅ Reordered responsibilities for user {user_id}")
-        return new_resume
+        return {"status": "success"}
 
     except Exception as e:
         print(f"❌ Error reordering responsibilities: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 
 
-tools = [internship_Tool, reorder_Tool, reorder_bullet_points_tool, transfer_to_main_agent, transfer_to_por_agent,
+tools = [internship_Tool, reorder_Tool, reorder_bullet_points_tool,
+        get_compact_internship_entries,
+        get_internship_entry_by_index,
+         transfer_to_main_agent, transfer_to_por_agent,
          transfer_to_workex_agent, transfer_to_education_agent,
          transfer_to_scholastic_achievement_agent, transfer_to_extra_curricular_agent]
     

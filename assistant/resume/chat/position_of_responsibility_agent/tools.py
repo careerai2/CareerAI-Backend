@@ -11,9 +11,79 @@ from langchain_core.runnables import RunnableConfig
 from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
 from ..handoff_tools import *
 from ..utils.update_summar_skills import update_summary_and_skills
+from redis_config import redis_client as r
+
+
+
+@tool
+def get_compact_por_entries(config: RunnableConfig):
+    """
+    Get all POR entries in a concise format.
+    Returns: list of dicts with only non-null fields (responsibilities count instead of full list).
+    """
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        entries_raw = r.get(f"resume:{user_id}:{resume_id}")
+        resume_data = json.loads(entries_raw) if entries_raw else {}
+        entries = resume_data.get("positions_of_responsibility", [])
+
+        # Filter invalid entries
+        entries = [e for e in entries if e and isinstance(e, dict)]
+
+        compact = []
+        for i, e in enumerate(entries):
+            entry_dict = {
+                "index": i,
+                **{k: v for k, v in {
+                    "role": e.get("role"),
+                    "role_description": e.get("role_description"),
+                    "organization": e.get("organization"),
+                    "organization_description": e.get("organization_description"),
+                    "location": e.get("location"),
+                    "duration": e.get("duration"),
+                    "responsibilities_count": len(e.get("responsibilities", [])) if e.get("responsibilities") else None
+                }.items() if v not in [None, "", [], {}]}
+            }
+            compact.append(entry_dict)
+
+        print("Compact POR entries:", compact)
+        return compact
+
+    except Exception as e:
+        print(f"Error in get_compact_por_entries: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@tool
+def get_por_entry_by_index(config: RunnableConfig):
+    """
+    Get a single POR entry by index.
+    Returns full entry including responsibilities.
+    """
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        index = config["configurable"].get("index")
+        
+        entries_raw = r.get(f"resume:{user_id}:{resume_id}")
+        resume_data = json.loads(entries_raw) if entries_raw else {}
+        entries = resume_data.get("positions_of_responsibility", [])
+
+        if index is not None and 0 <= index < len(entries):
+            print(entries[index])
+            return entries[index]
+        else:
+            return {"error": "Invalid index or entry not found"}
+
+    except Exception as e:
+        print(f"Error in get_por_entry_by_index: {e}")
+        return {"error": str(e)}
+
 
 class PositionOfResponsibilityToolInput(BaseModel):
-    type: Literal["add", "update", "delete"] = "add"  # Default operation
+    type: Literal["add", "update", "delete"] # Default operation
     updates: Optional[PositionOfResponsibility] = None
     index: int  # Required for update/delete
 
@@ -41,11 +111,11 @@ class PositionOfResponsibilityToolInput(BaseModel):
 async def position_of_responsibility_tool(
     index: int,
     config: RunnableConfig,
-    type: Literal["add", "update", "delete"] = "add",
+    type: Literal["add", "update", "delete"],
     updates: Optional[PositionOfResponsibility] = None,
 ) -> None:
     """Add, update, or delete a position of responsibility entry in the user's resume.
-    Index is required for update/delete operations.
+    Index and Type are required for update/delete operations.
     """
     try:
         user_id = config["configurable"].get("user_id")
@@ -58,12 +128,6 @@ async def position_of_responsibility_tool(
             raise ValueError("Missing 'updates' for add/update operation.")
         if type in ["update", "delete"] and index is None:
             raise ValueError("Index is required for update/delete operation.")
-
-        print({
-            "updates": updates,
-            "type": type,
-            "index": index
-        })
 
         # Deep copy for JSON patch
         new_resume = get_resume(user_id, resume_id)
@@ -113,11 +177,12 @@ async def position_of_responsibility_tool(
         await send_patch_to_frontend(user_id, new_resume)
 
         print(f"✅ Position Of Responsibility section updated for {user_id}")
-        
-        return new_resume
+
+        return {"status":"success"}
 
     except Exception as e:
         print(f"❌ Error updating position of responsibility for user {user_id}: {e}")
+        return {"status":"error","message":str(e)}
 
 
 
@@ -196,10 +261,11 @@ async def reorder_Tool(operations: ReorderToolInput,config: RunnableConfig,) -> 
 
         print(f"✅ positions_of_responsibility section reordered for {user_id}")
 
-        return new_resume
+        return {"status": "success"}
 
     except Exception as e:
         print(f"❌ Error reordering resume for user in positions_of_responsibility: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 
@@ -266,13 +332,17 @@ async def reorder_responsibilities_tool(
         await send_patch_to_frontend(user_id, new_resume)
 
         print(f"✅ Reordered responsibilities for user {user_id}")
-        return new_resume
+        return {"status": "success"}
 
     except Exception as e:
         print(f"❌ Error reordering responsibilities: {e}")
+        return {"status": "error", "message": str(e)}
 
 
-tools = [position_of_responsibility_tool,reorder_Tool,reorder_responsibilities_tool, transfer_to_extra_curricular_agent, transfer_to_main_agent,
+tools = [position_of_responsibility_tool,reorder_Tool,reorder_responsibilities_tool,
+         get_compact_por_entries,
+         get_por_entry_by_index,
+         transfer_to_extra_curricular_agent, transfer_to_main_agent,
          transfer_to_workex_agent, transfer_to_internship_agent
          ,transfer_to_education_agent,transfer_to_scholastic_achievement_agent]
 

@@ -10,7 +10,11 @@ import json
 from .tools import tools
 from ..llm_model import llm,SwarmResumeState
 from models.resume_model import PositionOfResponsibility
-
+from langchain_core.messages.utils import (
+    trim_messages,
+    count_tokens_approximately
+)
+from ..utils.common_tools import calculate_tokens
 # ---------------------------
 # 1. Define State
 # ---------------------------
@@ -39,37 +43,54 @@ def call_por_model(state: SwarmResumeState, config: RunnableConfig):
     print(f"[Position Of Responsibility Agent] Handling user {user_id} for resume {resume_id}")
 
     latest_entries = state.get("resume_schema", {}).get("positions_of_responsibility")
-    
     # print(latest_entries)
-
     system_prompt = SystemMessage(
         f"""
-        You are the **Position Of Responsibility Assistant** for a Resume Builder application.
-        Act as an **elder brother / mentor**, guiding the user to build a strong Position Of Responsibility section.
+        You are the **Position Of Responsibility (POR) Assistant** for a Resume Builder.
+        Act as a helpful mentor guiding the user to build a strong POR section.
 
         --- Responsibilities ---
-        1. Collect and organize Position Of Responsibility info as mentioned in the schema below.
-        2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
-        3. Always create or update entries using the `position_of_responsibility_tool` in real time **don't forget to provide index**.
-        4. You can move entries using `reorder_tool & reorder_responsibilities_tool` with `MoveOperation`, it requires old_index and new_index,to move the entry,***Don't ask user for indexes brainstorm yourself you already have current entries***.
-        5. Ask one question at a time to fill missing details.
-        6. If user asks about different section check ur tools or route them to that agent
-        7. If u didn't understand the request → call `transfer_to_main_agent`.
+        1. Collect POR info (Role, Role Description, Organization, Organization Description, Location, Duration, Responsibilities).
+        2. Focus on roles: {tailoring_keys}. Highlight relevant details in **short responses (~60-70 words)**.
+        3. Use `position_of_responsibility_tool` to add/update/delete entries (**always provide index & type**). 
+        Never ask the user for indexes; decide yourself using current entries.
+        4. Rearrange entries using `reorder_tool` and responsibilities using `reorder_responsibilities_tool` as needed.
+        5. Ask **one question at a time**. Do **not** show changes — resume is live-previewed.
+        6. Route to appropriate agent if user talks about a different section.
+        7. Call `transfer_to_main_agent` if request is unclear.
 
+        --- POR Schema ---
+        role, role_description, organization, organization_description,
+        location, duration, responsibilities (List[str])
 
-        Position Of Responsibility Schema Context:
-        ```json
-        { json.dumps(PositionOfResponsibility.model_json_schema(), indent=2) }
-        ```
-        
-         Current Entries:
-        ```json
-        { json.dumps(latest_entries, indent=2) }
-        ```
+        --- Current Entries (Compact Version) ---
+        Use `get_compact_por_entries` to retrieve index, role, organization, duration, 
+        and responsibilities count. Do not include full responsibilities content here; fetch only if needed.
+
+        Remember:
+        - Always use the index from compact entries when calling `position_of_responsibility_tool`.
+        - Keep responses short and focused (~60-70 words).
         """
     )
 
+    messages = trim_messages(
+        state["messages"],
+        strategy="last",
+        token_counter=count_tokens_approximately,
+        max_tokens=1024,
+        start_on="human",
+        end_on=("human", "tool"),
+    )
+    
+    if not messages:
+        from langchain.schema import HumanMessage
+        messages = [HumanMessage(content="")]  # or some default prompt
+    
+
     response = llm_internship.invoke([system_prompt] + state["messages"], config)
+
+    print("POR Response Token Usage:", response.usage_metadata)
+
     return {"messages": [response]}
 
 # ---------------------------

@@ -1,3 +1,4 @@
+from pyexpat.errors import messages
 from langgraph.graph import StateGraph, END
 from langgraph.types import Command
 from langgraph.prebuilt import ToolNode
@@ -11,6 +12,14 @@ from ..handoff_tools import transfer_to_internship_agent, transfer_to_main_agent
 from .tools import tools
 from ..llm_model import llm,SwarmResumeState
 from models.resume_model import Education
+from langchain_core.messages.utils import (
+    trim_messages,
+    count_tokens_approximately
+)
+from ..utils.common_tools import calculate_tokens
+from langchain_core.messages import convert_to_messages
+from textwrap import dedent
+
 
 # ---------------------------
 # 1. Define State
@@ -34,38 +43,67 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
     latest_education = state.get("resume_schema", {}).get("education_entries", [])
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
     
-    # print(f"Latest Education Entries: {json.dumps(latest_education, indent=2)}")
+
     
 
     system_prompt = SystemMessage(
-        f"""
-        You are the **Education Assistant** for a Resume Builder application.  
-        Act as an **elder brother / mentor**, guiding the user to create a strong Education section.
+    f"""
+    You are an Education Assistant for a Resume Builder. Act like a mentor guiding the user.
 
-        --- Responsibilities ---
-        1. Guide user to provide Degree, Institute, Start & End Years.
-        2. Encourage adding CGPA/Percentage and achievements.
-        3. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
-        4. Create or update entries using `education_tool` in real time **don't forget to provide index**.
-        5. You can move entries using `reorder_tool` with `MoveOperation`, it requires old_index and new_index,to move the entry,***Don't ask user for indexes brainstorm yourself you already have current entries***.
-        6. When adding new entry, first check if the entry already exists, Inform the user and ask if they want to update it even for bullet points.
-        7. Ask one question at a time to fill missing details.
-        8. If user asks about different section check ur tools or route them to that agent
-        9. If u didn't understand the request → call `transfer_to_main_agent`.
+    Instructions:
+    {{
+        "role": "mentor",
+        "goal": "Build a strong Education section",
+        "steps": [
+            "Ask for degree, institute, start & end years, CGPA",
+            "Tailor entries to {tailoring_keys} if relevant",
+            "Use 'education_tool' to add/update entries (always include index)",
+            "Use 'reorder_tool' with old_index → new_index when needed",
+            "Check for existing entries before adding; confirm update if exists",
+            "Route to other agents/tools if user switches section",
+            "Call 'transfer_to_main_agent' if request is unclear"
+        ]
+    }}
 
-        Education Schema Context:
-        ```json
-        { json.dumps(Education.model_json_schema(), indent=2) }
-        ```
-        Current Entries:
-        ```json
-        { json.dumps(latest_education, indent=2) }
-        ```
-        """
-    )
+    Education Schema:
+    {{
+        "college": "Optional[str]",
+        "degree": "Optional[str]",
+        "start_year": "Optional[int]",
+        "end_year": "Optional[int]",
+        "cgpa": "Optional[float]"
+    }}
 
-    response = llm_education.invoke([system_prompt] + state["messages"], config)
+    Current Entries: use 'get_education_entries_tool'
+    Remember:
+        - Always use the index from the compact entries when calling `internship_tool`.
+        - Keep your chat responses to the point and concise - do not repeat points added in the resume schema context.
+    """
+)
+
     
+    messages = trim_messages(
+        state["messages"],
+        strategy="last",
+        token_counter=count_tokens_approximately,
+        max_tokens=1024,
+        start_on="human",
+        end_on=("human", "tool"),
+    )
+    messages = convert_to_messages(messages)
+    # messages = state["messages"]
+
+    if not messages or len(messages) < 1:
+        from langchain.schema import HumanMessage
+        messages = [HumanMessage(content="")]  # or some default prompt
+
+    print("Trimmed msgs length:-",len(messages))
+
+
+    response = llm_education.invoke([system_prompt] + messages, config)
+
+    print("Education Response Token Usage:", response.usage_metadata)
+
     return {"messages": [response]}
 
 # ---------------------------

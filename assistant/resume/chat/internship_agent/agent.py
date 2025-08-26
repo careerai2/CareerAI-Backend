@@ -5,20 +5,15 @@ from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 from typing_extensions import TypedDict, Annotated
 from langgraph.graph.message import add_messages
-import json
-
-from ..handoff_tools import transfer_to_main_agent, transfer_to_education_agent
 from ..llm_model import llm,SwarmResumeState
 from models.resume_model import Internship
 from .tools import tools
-# ---------------------------
-# 1. Define State
-# ---------------------------
-
-class SwarmResumeState(TypedDict):
-    user_id: str
-    resume_id: str
-    messages: Annotated[list, add_messages]  # All conversation messages
+from langchain_core.messages.utils import (
+    trim_messages,
+    count_tokens_approximately
+)
+from ..utils.common_tools import calculate_tokens
+from textwrap import dedent
 
 # ---------------------------
 # 2. LLM with Tools
@@ -38,35 +33,53 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     
     # print(f"[Internship Agent] Handling user {user_id} for resume {resume_id} with tailoring keys {tailoring_keys}")
     
-    latest_entries = state.get("resume_schema", {}).get("internships", [])
-    # Eg: [Internship Agent] Handling user 688a1bfa90accd05bcc8eb7b for resume 6894c8ea3b357837e5def6cd 
-    # with tailoring keys ['consult'] # can use this to tailor the responses by using in prompt
+    # latest_entries = state.get("resume_schema", {}).get("internships", [])
 
     system_prompt = SystemMessage(
-        f"""
-        You are the **Internship Assistant** for a Resume Builder application.
-        Act as an **elder brother / mentor**, guiding the user to build a strong Internship section.
+        content=dedent(f"""
+        You are the **Internship Assistant** for a Resume Builder. 
+        Act as a helpful mentor guiding the user to build a strong Internship section.
 
         --- Responsibilities ---
-        1. Collect and organize internship info (Company, Role, Duration, Location, Achievements).
-        2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
-        3. Create or update entries using `internship_tool` in real time **don't forget to provide index**.
-        4. You can move entries using `reorder_tool & reorder_bullet_points_tool` with `MoveOperation`, it requires old_index and new_index,to move the entry,***Don't ask user for indexes brainstorm yourself you already have current entries***.
-        5. Ask one question at a time to fill missing details.
+        1. Collect internship info (Company, Role, Duration, Location, Achievements).
+        2. Focus on roles: {tailoring_keys}. Highlight relevant details in **short responses (~60-70 words)**.
+        3. Use `internship_tool` to add/update/delete entries (**provide index & type(use your judgment to get it)**). 
+        Never ask the user for indexes; decide yourself using current entries.
+        4. Move entries using `reorder_tool` & `reorder_bullet_points_tool` if needed.
+        5. Ask **one question at a time**. Do **not** show changes — resume is live-previewed.
 
-        Internship Schema Context:
-        ```json
-        { json.dumps(Internship.model_json_schema(), indent=2) }
-        ```
-        
-        Current Entries:
-        ```json
-        { json.dumps(latest_entries, indent=2) }
-        ```
-        """
+        --- Internship Schema ---
+        company_name, company_description, location, designation, designation_description, 
+        duration, internship_work_description_bullets (List[str])
+
+        --- Current Entries (Compact Version) ---
+        Use `get_compact_internship_entries` to retrieve index, company_name, designation, duration, 
+        and a short summary of bullets. Do not include full bullet content here; fetch only if needed.
+
+        Remember:
+        - Always use the index from the compact entries when calling `internship_tool`.
+        - Keep responses short and focused (~60-70 words).
+        """)
     )
 
-    response = llm_internship.invoke([system_prompt] + state["messages"], config)
+    
+    messages = trim_messages(
+        state["messages"],
+        strategy="last",
+        token_counter=count_tokens_approximately,
+        max_tokens=1024,
+        start_on="human",
+        end_on=("human", "tool"),
+    )
+    
+    # print(messages)
+    print("Trimmed msgs length:-",len(messages))
+ 
+
+    response = llm_internship.invoke([system_prompt] + messages, config)
+
+    print("Internship Token Usage:", response.usage_metadata)
+
     return {"messages": [response]}
 
 # ---------------------------

@@ -8,6 +8,11 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 import json
 from .tools import tools
+from langchain_core.messages.utils import (
+    trim_messages,
+    count_tokens_approximately
+)
+from ..utils.common_tools import calculate_tokens
 
 # ---------------------------
 # 1. LLM Setup
@@ -29,6 +34,16 @@ def call_model(state: SwarmResumeState, config: RunnableConfig):
     print(f"Calling Main model for user {user_id} with resume {resume_id}")
 
     latest_resume = state.get("resume_schema", {})
+    
+    filtered_resume = {
+        "title": latest_resume.get("title"),
+        "summary": latest_resume.get("summary"),
+        "name": latest_resume.get("name"),
+        "email": latest_resume.get("email"),
+        "phone_number": latest_resume.get("phone_number"),
+        "skills": latest_resume.get("skills"),
+        "interests": latest_resume.get("interests"),
+    }
 
     system_prompt = SystemMessage(
             f"""
@@ -49,19 +64,34 @@ def call_model(state: SwarmResumeState, config: RunnableConfig):
             9. **Positions of Responsibility** → handled by Positions of Responsibility Agent
             10. **Scholastic Achievements** → handled by Scholastic Achievements Agent
             11. **You should respond in short and concise sentences, don't ask a lot of questions in a single message.**.
-
+            Keep your chat responses to the point and concise - do not repeat points added in the resume schema context.
             **Resume Schema Context:**  
-            ```json
-            { json.dumps(ResumeLLMSchema.model_json_schema(), indent=2) }
-            ```
+            Apart from Top level field resume have education, internship, work experience, extra curricular, positions of responsibility, scholastic achievements.So u can pass to them if required
 
-            **Latest Resume Context:**
+            **Latest Context of Top level field:**
             ```json
-            { json.dumps(latest_resume, indent=2) }
+            {filtered_resume}
             ```
             """
     )
-    response = llm.invoke([system_prompt] + state["messages"], config)
+    
+    messages = trim_messages(
+        state["messages"],
+        strategy="last",
+        token_counter=count_tokens_approximately,
+        max_tokens=1024,
+        start_on="human",
+        end_on=("human", "tool"),
+    )
+    
+    # print(messages)
+
+     
+    response = llm.invoke([system_prompt] + messages, config)
+
+    print(f"Token Usage (Output): {response.usage_metadata}")
+
+    
     return {"messages": [response]}
 
 def should_continue(state: SwarmResumeState):

@@ -11,9 +11,78 @@ from langchain_core.runnables import RunnableConfig
 from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
 from ..handoff_tools import *
 from ..utils.update_summar_skills import update_summary_and_skills
+from redis_config import redis_client as r
+
+
+@tool
+def get_compact_work_experience_entries(config: RunnableConfig):
+    """
+    Get all work experience entries in a concise format.
+    Returns: list of dicts with only non-null fields (projects included as counts or ignored).
+    """
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        entries_raw = r.get(f"resume:{user_id}:{resume_id}")
+        resume_data = json.loads(entries_raw) if entries_raw else {}
+        entries = resume_data.get("work_experiences", [])
+
+        entries = [e for e in entries if e and isinstance(e, dict)]
+
+        compact = []
+        for i, e in enumerate(entries):
+            entry_dict = {
+                "index": i,
+                **{k: v for k, v in {
+                    "company_name": e.get("company_name"),
+                    "company_description": e.get("company_description"),
+                    "designation": e.get("designation"),
+                    # "designation_description": e.get("designation_description"),
+                    "location": e.get("location"),
+                    "duration": e.get("duration"),
+                    "projects_count": len(e.get("projects", [])) if e.get("projects") else None
+                }.items() if v not in [None, "", [], {}]}
+            }
+            compact.append(entry_dict)
+
+        print("Compact work experience entries:", compact)
+        return compact
+
+    except Exception as e:
+        print(f"Error in get_compact_work_experience_entries: {e}")
+        return []
+
+
+@tool
+def get_work_experience_entry_by_index(index: int, config: RunnableConfig):
+    """
+    Get a single work experience entry by index.
+    Returns full entry including projects and bullets.
+    """
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        
+        entries_raw = r.get(f"resume:{user_id}:{resume_id}")
+        resume_data = json.loads(entries_raw) if entries_raw else {}
+        entries = resume_data.get("work_experiences", [])
+
+        if index is not None and 0 <= index < len(entries):
+            print(entries[index])
+            return entries[index]
+        else:
+            return {"error": "Invalid index or entry not found"}
+
+    except Exception as e:
+        print(f"Error in get_work_experience_entry_by_index: {e}")
+        return {"error": str(e)}
+
+
 
 class WorkExperienceToolInput(BaseModel):
-    type: Literal["add", "update", "delete"] = "add"  # Default operation
+    type: Literal["add", "update", "delete"] # Default operation
     updates: Optional[WorkExperience] = None
     index: int  # Required for update/delete
 
@@ -41,11 +110,11 @@ class WorkExperienceToolInput(BaseModel):
 async def workex_Tool(
     index: int,
     config: RunnableConfig,
-    type: Literal["add", "update", "delete"] = "add",
+    type: Literal["add", "update", "delete"],
     updates: Optional[WorkExperience] = None,
 ) -> None:
     """Add, update, or delete a work experience entry in the user's resume. 
-    Index is required for update/delete operations.
+    Index and Type are required for all operations.
     """
     try:
         user_id = config["configurable"].get("user_id")
@@ -115,10 +184,11 @@ async def workex_Tool(
 
         print(f"✅ Work Experience section updated for {user_id}")
         
-        return new_resume
+        return {"status":"success"}
 
     except Exception as e:
         print(f"❌ Error updating work experience for user {user_id}: {e}")
+        return {"status":"error", "message": str(e)}
 
 
 
@@ -189,10 +259,11 @@ async def reorder_tool(operations: list[MoveOperation], config: RunnableConfig) 
 
         print(f"✅ work_experiences section reordered for {user_id}")
 
-        return new_resume
+        return {"status":"success"}
 
     except Exception as e:
         print(f"❌ Error reordering resume for user in work_experiences: {e}")
+        return {"status":"error", "message": str(e)}
 
 
 
@@ -259,10 +330,11 @@ async def reorder_projects_tool(
         await send_patch_to_frontend(user_id, new_resume)
 
         print(f"✅ Reordered projects for user {user_id}")
-        return new_resume
+        return {"status":"success"}
 
     except Exception as e:
         print(f"❌ Error reordering projects: {e}")
+        return {"status":"error", "message": str(e)}
 
 
 # ---- Tool function ----
@@ -340,14 +412,19 @@ async def reorder_project_description_bullets_tool(
         await send_patch_to_frontend(user_id, new_resume)
 
         print(f"✅ Reordered projects for user {user_id}")
-        return new_resume
+        return {"status":"success"}
 
     except Exception as e:
         print(f"❌ Error reordering projects: {e}")
+        return {"status":"error", "message": str(e)}
 
 
 
-tools = [workex_Tool,reorder_tool,reorder_projects_tool,reorder_project_description_bullets_tool, transfer_to_extra_curricular_agent, transfer_to_por_agent,
+tools = [workex_Tool,reorder_tool,reorder_projects_tool,                     
+         reorder_project_description_bullets_tool, 
+         get_compact_work_experience_entries,
+         get_work_experience_entry_by_index,
+         transfer_to_extra_curricular_agent, transfer_to_por_agent,
          transfer_to_scholastic_achievement_agent, transfer_to_internship_agent
          ,transfer_to_education_agent, transfer_to_main_agent
          ]

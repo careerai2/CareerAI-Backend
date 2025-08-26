@@ -11,12 +11,58 @@ from langchain_core.runnables import RunnableConfig
 from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
 from ..utils.update_summar_skills import update_summary_and_skills
 from ..handoff_tools import *
+from redis_config import redis_client as r
+
+
+
+
+@tool
+def get_compact_education_entries(config: RunnableConfig):
+    """
+    Get all education entries in a concise, one-line format.
+    Returns: list of strings, each representing an education entry.
+    """
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        entries_raw = r.get(f"resume:{user_id}:{resume_id}")
+        resume_data = json.loads(entries_raw) if entries_raw else {}
+        entries = resume_data.get("education_entries", [])
+
+        # Filter out invalid entries
+        entries = [e for e in entries if e and isinstance(e, dict)]
+
+        compact = []
+        for e in entries:
+            parts = []
+            if e.get("degree"):
+                parts.append(e["degree"])
+            if e.get("college"):
+                parts.append(e["college"])
+            if e.get("start_year") or e.get("end_year"):
+                years = f"{e.get('start_year','')} - {e.get('end_year','')}".strip(" -")
+                parts.append(f"({years})")
+            if e.get("cgpa"):
+                parts.append(f"CGPA {e['cgpa']}")
+            
+            # Join all non-empty parts with commas
+            line = ", ".join([p for p in parts if p])
+            if line:
+                compact.append(line)
+
+        print("Compact education entries:", compact)
+        return compact
+
+    except Exception as e:
+        print(f"Error in get_compact_education_entries: {e}")
+        return {"status":"error", "message": str(e)}
 
 
 
 # ---- Pydantic input schema ----
 class EducationToolInput(BaseModel):
-    type: Literal["add", "update", "delete"] = "add"  # Default to add
+    type: Literal["add", "update", "delete"]  # Default to add
     updates: Optional[Education] = None              # Optional for delete
     index: int               # Optional index
 
@@ -45,9 +91,9 @@ class EducationToolInput(BaseModel):
 async def education_Tool(
     index: int | None,  # Optional index for update/delete operations
     config: RunnableConfig,
-    type: Literal["add", "update", "delete"] = "add",
+    type: Literal["add", "update", "delete"],
     updates: Optional[Education] = None,
-) -> None:
+) :
     """Add, update, or delete an education entry in the user's resume. 
     Index is required for update/delete operations.
     """
@@ -116,11 +162,12 @@ async def education_Tool(
         await send_patch_to_frontend(user_id, new_resume)
 
         print(f"✅ Education section updated for {user_id}")
-        
-        return new_resume
+
+        return {"status": "success"}
 
     except Exception as e:
         print(f"❌ Error updating resume for user: {e}")
+        return {"status": "error", "err_msg": str(e)}
 
 
 
@@ -208,7 +255,9 @@ async def reorder_Tool(
 
 
 
-tools = [education_Tool,reorder_Tool,transfer_to_main_agent, transfer_to_por_agent,
+tools = [education_Tool,reorder_Tool,
+         get_compact_education_entries,
+         transfer_to_main_agent, transfer_to_por_agent,
          transfer_to_workex_agent, transfer_to_internship_agent
          ,transfer_to_scholastic_achievement_agent,transfer_to_extra_curricular_agent]
 

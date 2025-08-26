@@ -9,7 +9,12 @@ import json
 from ..llm_model import llm, SwarmResumeState
 from models.resume_model import WorkExperience
 from .tools import tools
-
+from textwrap import dedent
+from langchain_core.messages.utils import (
+    trim_messages,
+    count_tokens_approximately
+)
+from ..utils.common_tools import calculate_tokens
 # ---------------------------
 # LLM with Tools
 # ---------------------------
@@ -30,32 +35,54 @@ def call_work_experience_model(state: SwarmResumeState, config: RunnableConfig):
     latest_entries = state.get("resume_schema", {}).get("work_experiences", [])
 
     system_prompt = SystemMessage(
-        f"""
-        You are the **Work Experience Assistant** for a Resume Builder application.
-        Act as an **elder brother / mentor**, guiding the user to build a strong Work Experience section.
+    content=dedent(f"""
+    You are the **Work Experience Assistant** for a Resume Builder. 
+    Act as a helpful mentor guiding the user to build a strong Work Experience section.
 
-        --- Responsibilities ---
-        1. Collect and organize work experience info as mentioned in the schema below.
-        2. The user is targeting these roles: {tailoring_keys}. Ensure the generated content highlights relevant details—such as bullet points and descriptions—that showcase suitability for these roles.
-        3. Always create or update entries using the `workex_tool` in real time **don't forget to provide index**.
-        4. You can use the `reorder_tool` to rearrange Workex entry **Don't ask for user input for index you already have current entries**.
-        5. You can use `reorder_projects_tool` to rearrange project entries in a specific workex entry **Don't ask for user input for index you already have current entries**.
-        6. You can use the `reorder_project_description_bullets_tool` to rearrange project description bullets **Don't ask for user input for index you already have current entries**.
-        7. Ask one question at a time to fill missing details.
+    --- Responsibilities ---
+    1. Collect work experience info (Company, Role, Duration, Location, Description, Projects, Project Bullets).
+    2. Focus on roles: {tailoring_keys}. Highlight relevant details in **short responses (~60-70 words)**.
+    3. Use `workex_tool` to add/update/delete entries (**always provide index & type**). 
+       Never ask the user for indexes; decide yourself using current entries.
+    4. Rearrange entries using `reorder_tool`, `reorder_projects_tool`, and `reorder_project_description_bullets_tool` as needed.
+    5. Ask **one question at a time**. Do **not** show changes — resume is live-previewed.
 
-        Work Experience Schema Context:
-        ```json
-        { json.dumps(WorkExperience.model_json_schema(), indent=2) }
-        ```
+    --- Work Experience Schema ---
+    company_name, company_description, location, duration, designation, designation_description,
+    projects (List[Project]), project_name, project_description, description_bullets (List[str])
 
-        Current Entries:
-        ```json
-        { json.dumps(latest_entries, indent=2) }
-        ```
-        """
+    --- Current Entries (Compact Version) ---
+    Use `get_compact_work_experience_entries` to retrieve index, company_name, designation, duration,
+    and projects count. Do not include full project or bullet content here; fetch only if needed.
+
+    Remember:
+    - Always use the index from the compact entries when calling `workex_tool`.
+    - Keep responses short and focused (~60-70 words).
+    """)
+)   
+    
+    messages = trim_messages(
+        state["messages"],
+        strategy="last",
+        token_counter=count_tokens_approximately,
+        max_tokens=1024,
+        start_on="human",
+        end_on=("human", "tool"),
     )
+    
+    
+    
+    if not messages:
+        from langchain.schema import HumanMessage
+        messages = [HumanMessage(content="")]  # or some default prompt
+    
+    print("Trimmed msgs length:-",len(messages))
+    
 
     response = llm_work_experience.invoke([system_prompt] + state["messages"], config)
+
+    print("Work Experience Token Usage:", response.usage_metadata)
+
     return {"messages": [response]}
 
 # ---------------------------
