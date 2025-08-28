@@ -453,7 +453,7 @@ async def get_all_resumes_by_user(user_id: str, db: AsyncIOMotorDatabase):
         # Project only title and template fields (+ _id if needed)
         cursor = resume_collection.find(
             {"user_id": user_id},
-            {"title": 1, "template": 1,"_id":1,"status": 1}  # include only these fields
+            {"title": 1, "template": 1,"_id":1,"status": 1,"updated_at":1}  # include only these fields
         )
         resumes = await cursor.to_list(length=None)
 

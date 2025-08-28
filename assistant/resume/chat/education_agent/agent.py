@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from typing_extensions import TypedDict, Annotated
 from langgraph.graph.message import add_messages
 import json
-
+from langchain_core.messages import HumanMessage
 from ..handoff_tools import transfer_to_internship_agent, transfer_to_main_agent
 from .tools import tools
 from ..llm_model import llm,SwarmResumeState
@@ -19,7 +19,7 @@ from langchain_core.messages.utils import (
 from ..utils.common_tools import calculate_tokens
 from langchain_core.messages import convert_to_messages
 from textwrap import dedent
-
+from utils.safe_trim_msg import safe_trim_messages
 
 # ---------------------------
 # 1. Define State
@@ -57,7 +57,7 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
         "steps": [
             "Ask for degree, institute, start & end years, CGPA",
             "Tailor entries to {tailoring_keys} if relevant",
-            "Use 'education_tool' to add/update entries (always include index)",
+            "Use 'education_tool' to add/update entries (always include index), calculate index and type yourself",
             "Use 'reorder_tool' with old_index → new_index when needed",
             "Check for existing entries before adding; confirm update if exists",
             "Route to other agents/tools if user switches section",
@@ -82,29 +82,20 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
 )
 
     
-    messages = trim_messages(
-        state["messages"],
-        strategy="last",
-        token_counter=count_tokens_approximately,
-        max_tokens=1024,
-        start_on="human",
-        end_on=("human", "tool"),
-    )
-    messages = convert_to_messages(messages)
-    # messages = state["messages"]
-
-    if not messages or len(messages) < 1:
-        from langchain.schema import HumanMessage
-        messages = [HumanMessage(content="")]  # or some default prompt
+    messages = safe_trim_messages(state["messages"], max_tokens=1024)
 
     print("Trimmed msgs length:-",len(messages))
 
+    try:
+        response = llm_education.invoke([system_prompt] + messages, config)
 
-    response = llm_education.invoke([system_prompt] + messages, config)
+        print("Education Response Token Usage:", response.usage_metadata)
 
-    print("Education Response Token Usage:", response.usage_metadata)
+        return {"messages": [response]}
+    except Exception as e:
+        print("Error occurred while calling education model:", e)
+        # return {"messages": [HumanMessage(content="An error occurred while processing your request.")]}
 
-    return {"messages": [response]}
 
 # ---------------------------
 # 4. Conditional Routing

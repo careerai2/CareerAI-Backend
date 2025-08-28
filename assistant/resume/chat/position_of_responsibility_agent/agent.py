@@ -15,6 +15,7 @@ from langchain_core.messages.utils import (
     count_tokens_approximately
 )
 from ..utils.common_tools import calculate_tokens
+from utils.safe_trim_msg import safe_trim_messages
 # ---------------------------
 # 1. Define State
 # ---------------------------
@@ -73,21 +74,11 @@ def call_por_model(state: SwarmResumeState, config: RunnableConfig):
         """
     )
 
-    messages = trim_messages(
-        state["messages"],
-        strategy="last",
-        token_counter=count_tokens_approximately,
-        max_tokens=1024,
-        start_on="human",
-        end_on=("human", "tool"),
-    )
-    
-    if not messages:
-        from langchain.schema import HumanMessage
-        messages = [HumanMessage(content="")]  # or some default prompt
+    messages = safe_trim_messages(state["messages"], max_tokens=1024)
+    print("Trimmed msgs length:-",len(messages))
     
 
-    response = llm_internship.invoke([system_prompt] + state["messages"], config)
+    response = llm_internship.invoke([system_prompt] + messages, config)
 
     print("POR Response Token Usage:", response.usage_metadata)
 

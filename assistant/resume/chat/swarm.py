@@ -44,34 +44,24 @@ from langchain_core.messages import AIMessage
 from pydantic import BaseModel, ValidationError
 import json
 
-async def update_resume_state(thread_id: str, new_resume: dict):
+async def update_resume(thread_id: str, new_resume: dict):
     """
-    Updates the resume_schema in LangGraph state and Redis, 
+    Updates the resume and Redis, 
     validating against ResumeLLMSchema before saving.
     """
     try:
+        
+        # print("i m saving")
         # ✅ Step 1: Validate resume against schema
         validated_resume = ResumeLLMSchema(**new_resume)
 
         # ✅ Step 2: Try updating LangGraph state
-        graph.update_state(
-            config={
-                "configurable": {
-                    "thread_id": thread_id
-                }
-            },
-            values={
-                "resume_schema": validated_resume.model_dump(),
-                "messages": [
-                    AIMessage(content="Resume schema updated externally.")
-                ]
-            }
-        )
-
+        # print(validated_resume.model_dump_json())
+       
         key = f"resume:{thread_id}"
         r.set(key, validated_resume.json())
 
-        print(f"Resume state & Redis updated for {thread_id}")
+        print(f"Redis updated for {thread_id}")
 
     except ValidationError as ve:
         print(f"❌ Resume validation failed: {ve}")
@@ -197,7 +187,7 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
             if content and len(content) > 0:
                try:
                 #  await save_chat_message(db, user_id, resume_id, content, sender_role='assistant')
-                 await websocket.send_json({"type": "message", "message": content})
+                 await websocket.send_json({"type": "chat", "message": content})
                except Exception as e:
                    print(f"Error saving chat message: {e}")
 

@@ -14,7 +14,7 @@ from langchain_core.messages.utils import (
 )
 from ..utils.common_tools import calculate_tokens
 from textwrap import dedent
-
+from utils.safe_trim_msg import safe_trim_messages
 # ---------------------------
 # 2. LLM with Tools
 # ---------------------------
@@ -63,14 +63,7 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     )
 
     
-    messages = trim_messages(
-        state["messages"],
-        strategy="last",
-        token_counter=count_tokens_approximately,
-        max_tokens=1024,
-        start_on="human",
-        end_on=("human", "tool"),
-    )
+    messages = safe_trim_messages(state["messages"], max_tokens=1024)
     
     # print(messages)
     print("Trimmed msgs length:-",len(messages))
