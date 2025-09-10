@@ -11,7 +11,9 @@ from ..handoff_tools import transfer_to_main_agent, transfer_to_education_agent
 from .tools import tools
 from ..llm_model import llm,SwarmResumeState
 from models.resume_model import ScholasticAchievement
-
+import assistant.resume.chat.token_count as token_count
+from utils.safe_trim_msg import safe_trim_messages
+# import assistant.resume.chat.token_count as token_count
 # ---------------------------
 # 1. Define State
 # ---------------------------
@@ -54,10 +56,9 @@ def call_scholastic_achievement_model(state: SwarmResumeState, config: RunnableC
         6. If user asks about different section check ur tools or route them to that agent
         7. If u didn't understand the request → call `transfer_to_main_agent`.
 
-        Scholastic Achievement Schema Context:
-        ```json
-        { json.dumps(ScholasticAchievement.model_json_schema(), indent=2) }
-        ```
+        Scholastic Achievement Schema:
+       {{title | awarding_body | year (optional) | description (optional)}}
+
 
         Current Entries:
         ```json
@@ -65,8 +66,18 @@ def call_scholastic_achievement_model(state: SwarmResumeState, config: RunnableC
         ```
         """
     )
+    messages = safe_trim_messages(state["messages"], max_tokens=1024)
+    
+    
+    
+    print("Trimmed msgs length:-",len(messages))
+    
 
-    response = llm_scholastic_achievement.invoke([system_prompt] + state["messages"], config)
+    response = llm_scholastic_achievement.invoke([system_prompt] + messages, config)
+        
+    token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+    token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+    
     return {"messages": [response]}
 
 # ---------------------------

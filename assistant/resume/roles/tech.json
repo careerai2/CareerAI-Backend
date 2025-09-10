@@ -1,0 +1,160 @@
+{
+  "Skills": [
+    {
+      "role": "Backend Developer",
+      "Categories": [
+        {
+          "category_name": "Programming Languages",
+          "skills": ["Python", "Java", "Node.js", "C#", "Ruby", "PHP", "Go", "Rust", "Kotlin", "Scala", "Perl"]
+        },
+        {
+          "category_name": "Databases",
+          "skills": ["PostgreSQL", "MySQL", "MongoDB", "SQLite", "Redis", "Elasticsearch", "Cassandra", "MariaDB"]
+        },
+        {
+          "category_name": "Frameworks & Tools",
+          "skills": ["Django", "Express.js", "Spring Boot", "REST APIs", "Flask", "ASP.NET", "GraphQL", "Docker", "Kubernetes", "RabbitMQ", "Celery"]
+        },
+        {
+          "category_name": "DevOps & CI/CD",
+          "skills": ["Git", "Jenkins", "Docker", "CI/CD pipelines", "Kubernetes", "AWS", "Terraform", "Ansible"]
+        }
+      ]
+    },
+    {
+      "role": "Frontend Developer",
+      "Categories": [
+        {
+          "category_name": "Programming Languages",
+          "skills": ["JavaScript", "TypeScript", "HTML", "CSS", "SASS/SCSS", "Python", "Dart", "C++", "CoffeeScript"]
+        },
+        {
+          "category_name": "Frameworks & Libraries",
+          "skills": ["React", "Redux", "Vue.js", "Angular", "Next.js", "Svelte", "Tailwind CSS", "jQuery"]
+        },
+        {
+          "category_name": "UI/UX & Tools",
+          "skills": ["Figma", "Adobe XD", "Responsive Design", "Cross-browser testing", "Sketch", "Framer Motion", "InVision", "Zeplin"]
+        }
+      ]
+    },
+    {
+      "role": "Full-Stack Developer",
+      "Categories": [
+        {
+          "category_name": "Programming Languages",
+          "skills": ["JavaScript", "TypeScript", "Python", "Node.js", "Java", "Go", "Rust", "C#", "PHP"]
+        },
+        {
+          "category_name": "Frontend Frameworks",
+          "skills": ["React", "Redux", "HTML", "CSS", "Vue.js", "Next.js", "Svelte", "Angular", "Tailwind CSS"]
+        },
+        {
+          "category_name": "Backend & Databases",
+          "skills": ["Node.js", "Express.js", "PostgreSQL", "MongoDB", "Django", "Redis", "GraphQL", "Spring Boot", "MySQL", "Cassandra"]
+        },
+        {
+          "category_name": "DevOps & Tools",
+          "skills": ["Git", "Docker", "CI/CD pipelines", "Unit Testing", "Kubernetes", "AWS", "Terraform", "Nginx", "Jenkins"]
+        }
+      ]
+    },
+    {
+      "role": "Data Scientist / ML Engineer",
+      "Categories": [
+        {
+          "category_name": "Programming Languages",
+          "skills": ["Python", "R", "SQL", "Java", "Scala", "Julia", "C++"]
+        },
+        {
+          "category_name": "Libraries & Frameworks",
+          "skills": ["NumPy", "Pandas", "Scikit-learn", "TensorFlow", "PyTorch", "Keras", "XGBoost", "LightGBM", "OpenCV", "NLTK"]
+        },
+        {
+          "category_name": "Data Tools",
+          "skills": ["Jupyter", "Tableau", "Excel", "Google Colab", "PowerBI", "Airflow", "Spark", "MLflow"]
+        },
+        {
+          "category_name": "Other Skills",
+          "skills": ["Data Cleaning", "Feature Engineering", "Model Evaluation", "Hyperparameter Tuning", "Deployment on Cloud", "API Integration"]
+        }
+      ]
+    },
+    {
+      "role": "DevOps / Cloud Engineer",
+      "Categories": [
+        {
+          "category_name": "Cloud Platforms",
+          "skills": ["AWS", "Azure", "GCP", "IBM Cloud", "Oracle Cloud", "DigitalOcean"]
+        },
+        {
+          "category_name": "Tools & CI/CD",
+          "skills": ["Docker", "Kubernetes", "Jenkins", "Git", "Terraform", "Ansible", "Helm", "CircleCI", "Travis CI", "Puppet"]
+        },
+        {
+          "category_name": "Monitoring & Logging",
+          "skills": ["Prometheus", "Grafana", "ELK Stack", "Datadog", "New Relic", "Splunk"]
+        },
+        {
+          "category_name": "Scripting & Automation",
+          "skills": ["Bash", "Python", "PowerShell", "Perl", "Ruby", "Go"]
+        }
+      ]
+    }
+  ],
+
+  "Internship": {
+    "ActionVerbs": ["Developed", "Implemented", "Optimized", "Engineered", "Automated", "Tested", "Designed", "Deployed", "Refactored", "Collaborated", "Researched", "Analyzed", "Documented"],
+    "Requirements": [
+      "Company name, brief description, and location",
+      "Internship duration (start – end dates or months/years)",
+      "Designation/title and brief description of responsibilities",
+      "Internship work details in 3-5 bullet points",
+      "Technologies, tools, and frameworks used",
+      "Quantifiable impact wherever possible",
+      "Team collaboration and mentorship experience",
+      "Exposure to Agile/Scrum or other methodologies",
+      "Cross-functional project involvement",
+      "Learning outcomes and skills gained",
+      "Awards, recognitions, or special contributions"
+    ],
+    "Guidelines": [
+      {"field": "company_name", "instruction": "Provide the official company name. Avoid abbreviations unless commonly recognized."},
+      {"field": "company_description", "instruction": "Write 1-2 lines about what the company does, focusing on domain and products/services."},
+      {"field": "location", "instruction": "Mention city and country of the office you worked at."},
+      {"field": "designation", "instruction": "State your internship title or role."},
+      {"field": "designation_description", "instruction": "Briefly describe your role and key responsibilities in 1-2 lines."},
+      {"field": "duration", "instruction": "Use the format 'MMM YYYY – MMM YYYY' or 'MMM YYYY – Present'. Ensure clarity for ATS."},
+      {"field": "internship_work_description_bullets", "instruction": "Each bullet should start with a strong action verb, include relevant technology/tools, and quantify impact if possible."}
+    ]
+  },
+
+  "WorkExperience": {
+    "ActionVerbs": ["Developed", "Implemented", "Optimized", "Engineered", "Automated", "Deployed", "Debugged", "Architected", "Refactored", "Integrated", "Scaled", "Led", "Designed", "Improved", "Collaborated"],
+    "Requirements": [
+      "Company name, brief description, and location",
+      "Duration of employment (start – end dates or months/years)",
+      "Designation and concise description of responsibilities",
+      "Projects undertaken with clear outcomes",
+      "Quantifiable results wherever possible",
+      "Technologies, tools, frameworks, and methodologies used",
+      "Mentorship or leadership roles in projects",
+      "Team collaboration context (e.g., Agile, Scrum)",
+      "Cross-functional contributions (design, QA, product)",
+      "Impact on business metrics or user experience",
+      "Awards, recognitions, or notable achievements during tenure"
+    ],
+    "Guidelines": [
+      {"field": "company_name", "instruction": "Provide the official company name. Avoid abbreviations unless commonly recognized."},
+      {"field": "company_description", "instruction": "Write 1-2 lines about what the company does. Focus on its domain and products/services."},
+      {"field": "location", "instruction": "Mention city and country of the office you worked at."},
+      {"field": "duration", "instruction": "Use the format 'MMM YYYY – MMM YYYY' or 'MMM YYYY – Present'. Ensure clarity for ATS."},
+      {"field": "designation", "instruction": "State your official job title."},
+      {"field": "designation_description", "instruction": "Briefly describe your role, responsibilities, and reporting context in 1-2 lines."},
+      {"field": "projects", "instruction": "For each project, provide a name, description, and 3-5 bullets highlighting key achievements and tech used."},
+      {"field": "project.project_name", "instruction": "Give a concise and descriptive name for the project."},
+      {"field": "project.project_description", "instruction": "Write 1-2 lines about project scope, goal, and technologies used."},
+      {"field": "project.description_bullets", "instruction": "Each bullet should start with a strong action verb, include a tech/tool, and quantify impact wherever possible."}
+    ]
+  }
+}

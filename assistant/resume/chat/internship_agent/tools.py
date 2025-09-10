@@ -1,18 +1,23 @@
 from langchain.tools import tool
 from pydantic import BaseModel, field_validator
 import json
-from typing import Literal
+from typing import Literal,Union
 from models.resume_model import *
 from typing import Optional, Literal
 from pydantic import BaseModel, field_validator
 import json
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
-from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
+from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend,load_kb
 from ..utils.update_summar_skills import update_summary_and_skills
 from ..handoff_tools import *
-from redis_config import redis_client as r
-
+from redis_config import redis_client as r 
+from assistant.resume.chat.utils.common_tools import human_assistance
+from langgraph.prebuilt import InjectedState
+from models.resume_model import Internship
+# from .state import InternshipState
+from ..llm_model import SwarmResumeState,InternshipState
+from .handoff_tools import transfer_to_enhancer_pipeline,transfer_to_add_internship_agent,transfer_to_update_internship_agent
 
 @tool
 def get_compact_internship_entries(config: RunnableConfig):
@@ -57,6 +62,30 @@ def get_compact_internship_entries(config: RunnableConfig):
 
 
 @tool
+def get_full_internship_entries(config: RunnableConfig):
+    """
+    Get all internship entries in a full format.
+    Returns: list of dicts with all fields.
+    """
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        entries_raw = r.get(f"resume:{user_id}:{resume_id}")
+        resume_data = json.loads(entries_raw) if entries_raw else {}
+        entries = resume_data.get("internships", [])
+
+        # Filter out None or empty entries
+        entries = [e for e in entries if e and isinstance(e, dict)]
+
+        return entries
+
+    except Exception as e:
+        print(f"Error in get_full_internship_entries: {e}")
+        return {"error": "Failed to retrieve full internship entries","message":str(e)}
+
+
+@tool
 def get_internship_entry_by_index(index: int, config: RunnableConfig):
     """
     Get a single internship entry by index.
@@ -65,11 +94,12 @@ def get_internship_entry_by_index(index: int, config: RunnableConfig):
     user_id = config["configurable"].get("user_id")
     resume_id = config["configurable"].get("resume_id")
     
+    entries_raw = r.get(f"resume:{user_id}:{resume_id}")
+    resume_data = json.loads(entries_raw) if entries_raw else {}
+    entries = resume_data.get("internships", [])
     
-    entries = r.get(f"resume:{user_id}:{resume_id}:internships") or []
     
     if index is not None and 0 <= index < len(entries):
-        print(entries[index])
         return entries[index]
     else:
         return {"error": "Invalid index or entry not found"}
@@ -180,6 +210,73 @@ async def internship_Tool(
 
 
 
+@tool(
+    name_or_callable="internship_bullet_tool",
+    description="Add, update, or delete a bullet point inside a specific internship entry in the resume. "
+                "Requires internship_index for identifying the internship entry and bullet_index for update/delete.",
+    args_schema=None,  # you can define a Pydantic schema like InternshipBulletInput
+    infer_schema=True,
+    return_direct=False,
+    response_format="content",
+    parse_docstring=False
+)
+async def internship_bullet_tool(
+    internship_index: int,
+    config: RunnableConfig,
+    type: Literal["add", "update", "delete"],
+    bullet_index: Optional[int] = None,
+    bullet_entry: Optional[str] = None,
+):
+    """Add, update, or delete a bullet point in a specific internship entry."""
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        # Load resume
+        new_resume = get_resume(user_id, resume_id)
+        if not new_resume:
+            raise ValueError("Resume not found.")
+
+        # Validate internship index
+        if internship_index >= len(new_resume['internships']):
+            raise IndexError("Internship index out of range.")
+
+        internship_entry = new_resume['internships'][internship_index]
+
+        # Ensure internship_work_description_bullets field exists
+        if "internship_work_description_bullets" not in internship_entry or internship_entry["internship_work_description_bullets"] is None:
+            internship_entry["internship_work_description_bullets"] = []
+
+        # ---- Handle operations ----
+        if type == "add":
+            if not bullet_entry:
+                raise ValueError("Missing 'bullet_entry' for add operation.")
+            internship_entry["internship_work_description_bullets"].append(bullet_entry)
+
+        elif type == "update":
+            if bullet_index is None or bullet_index >= len(internship_entry["internship_work_description_bullets"]):
+                raise IndexError("Bullet index out of range.")
+            if not bullet_entry:
+                raise ValueError("Missing 'bullet_entry' for update operation.")
+            internship_entry["internship_work_description_bullets"][bullet_index] = bullet_entry
+
+        elif type == "delete":
+            if bullet_index is None or bullet_index >= len(internship_entry["internship_work_description_bullets"]):
+                raise IndexError("Bullet index out of range.")
+            del internship_entry["internship_work_description_bullets"][bullet_index]
+
+        # Save updates
+        save_resume(user_id, resume_id, new_resume)
+        await send_patch_to_frontend(user_id, new_resume)
+
+        print(f"✅ Bullet point {type}d for internship {internship_index}, user {user_id}")
+        return {"status": "success"}
+
+    except Exception as e:
+        print(f"❌ Error updating bullet point for user {user_id}: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 class MoveOperation(BaseModel):
@@ -337,10 +434,358 @@ async def reorder_bullet_points_tool(
 
 
 
-tools = [internship_Tool, reorder_Tool, reorder_bullet_points_tool,
-        get_compact_internship_entries,
-        get_internship_entry_by_index,
-         transfer_to_main_agent, transfer_to_por_agent,
+
+
+# # ------ Retrival Tool -------------
+# @tool(
+#     description=(
+#         "Retrieves the most relevant and exact information for a given role, section, "
+#         "and field from the knowledge base. Returns action verbs, skills, guidelines, "
+#         "good to have - must have or examples.")
+# )
+# async def use_knowledge_base(
+#     query_text: str,
+#     config: RunnableConfig,
+#     section: Literal["Internship","Skills"],
+#     field: Literal["ActionVerbs","GoodTOHave","MustHave","Guidelines"],
+#     n_results: int = 5,
+#     similarity_threshold: float = 0.45,  # good for cosine distance
+# ):
+#     """
+#     Use it for if you need to fetch exact action verbs, must-haves, good-to-haves, or guidelines for a specific resume section.
+#     Always use before creating or editing an entry.
+#     Precise retrieval tool for LLMs.
+#     Uses semantic search + metadata filters.
+#     """
+#     try:
+#         query_embedding = embeddings.embed_query(query_text)
+#         role = config["configurable"].get("tailoring_keys")
+
+#         # ---- Build dynamic filters ----
+#         conditions = []
+#         if role:
+#             if isinstance(role, list) and len(role) > 1:
+#                 conditions.append({"$or": [{"role": r} for r in role]})
+#             else:
+#                 conditions.append({"role": role[0] if isinstance(role, list) else role})
+#         if section:
+#             conditions.append({"section": section})
+#         if field:
+#             conditions.append({"field": field})
+
+#         where_filter = {"$and": conditions} if conditions else {}
+
+#         # ---- Query Chroma ----
+#         results = collection.query(
+#             query_embeddings=[query_embedding],
+#             n_results=n_results,
+#             where=where_filter,
+#             include=["documents", "distances", "metadatas"],
+#         )
+
+#         retrieved_texts = []
+#         for doc_list, dist_list in zip(results["documents"], results["distances"]):
+#             for doc, dist in zip(doc_list, dist_list):
+#                 # keep only close (similar) results
+#                 if dist > similarity_threshold:
+#                     continue
+#                 # parse JSON arrays if present
+#                 if isinstance(doc, str) and doc.startswith("["):
+#                     try:
+#                         parsed = json.loads(doc)
+#                         if isinstance(parsed, list):
+#                             retrieved_texts.extend(parsed)
+#                         else:
+#                             retrieved_texts.append(parsed)
+#                     except Exception:
+#                         retrieved_texts.append(doc)
+#                 else:
+#                     retrieved_texts.append(doc)
+
+#         # ---- Deduplicate & return ----
+#         retrieved_texts = list(dict.fromkeys(map(str, retrieved_texts)))
+#         result = "\n".join(retrieved_texts)
+
+#         return result if result else "No relevant information found."
+
+#     except Exception as e:
+#         return {"status": "error", "message": str(e)}
+
+@tool(
+    description="Retrieve internship-related knowledge (ActionVerbs, Requirements, Guidelines, or field-specific guideline). Supports multiple fields."
+)
+def fetch_internship_info(fields: Union[str, list[str]], config: RunnableConfig) -> dict:
+    """
+    Fetch internship information for one or multiple fields.
+
+    Args:
+        fields: str or list of str. Can include "ActionVerbs", "Requirements",
+                "Guidelines", or specific fields like "company_name", "duration".
+    """
+    try:
+        print(f"[fetch_internship_info] Called with fields: {fields}")
+        if isinstance(fields, str):
+            fields = [fields]
+
+        role = config["configurable"].get("tailoring_keys")
+        print(f"[fetch_internship_info] Role: {role}")
+        INTERNSHIP_KB = load_kb(role[0], "Internship") if role else load_kb("General", "Internship")
+        print(f"[fetch_internship_info] Loaded KB keys: {list(INTERNSHIP_KB.keys())}")
+
+        results = {}
+        for field in fields:
+            field_norm = field.strip().lower()
+            print(f"[fetch_internship_info] Processing field: {field} (normalized: {field_norm})")
+
+            if field_norm == "actionverbs":
+                results["ActionVerbs"] = INTERNSHIP_KB.get("ActionVerbs", [])
+                print(f"[fetch_internship_info] ActionVerbs: {results['ActionVerbs']}")
+
+            elif field_norm == "requirements":
+                results["Requirements"] = INTERNSHIP_KB.get("Requirements", [])
+                print(f"[fetch_internship_info] Requirements: {results['Requirements']}")
+
+            elif field_norm == "guidelines":
+                results["Guidelines"] = INTERNSHIP_KB.get("Guidelines", [])
+                print(f"[fetch_internship_info] Guidelines: {results['Guidelines']}")
+
+            else:
+                # Look inside Guidelines
+                match = next(
+                    (g for g in INTERNSHIP_KB.get("Guidelines", []) if g.get("field", "").lower() == field_norm),
+                    None
+                )
+                if match:
+                    results[match["field"]] = match.get("instruction", "")
+                    print(f"[fetch_internship_info] Found guideline for {field}: {match.get('instruction', '')}")
+                else:
+                    results[field] = f"No information found for '{field}'"
+                    print(f"[fetch_internship_info] No information found for {field}")
+
+        print(f"[fetch_internship_info] Final results: {results}")
+        return results
+    except Exception as e:
+        print(f"[fetch_internship_info] Error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
+class entryStateInput(BaseModel):
+    field: Literal[
+        "company_name",
+        "company_description",
+        "location",
+        "designation",
+        "designation_description",
+        "duration",
+        "internship_work_description_bullets"
+    ]
+    value: str | list[str]
+
+@tool
+async def update_entry_state(
+    entry: list[entryStateInput],
+    state: Annotated[SwarmResumeState, InjectedState],
+    config: RunnableConfig
+):
+    """Update the internship sub-state within SwarmResumeState."""
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        print("STATE BEFORE UPDATE:", state["internship"].entry)
+        print(f"🔄 Updating internship entry state with: {entry}")
+
+        if not entry:
+            raise ValueError("Missing 'entry' for state update operation.")
+
+        # Ensure the internship sub-state exists
+        if state["internship"] is None:
+            raise ValueError("Internship state not initialized.")
+
+        # Ensure the entry object exists
+        if state["internship"].entry is None:
+            state["internship"].entry = Internship()
+
+        failed_fields = []
+
+        for e in entry:
+            if e.field == "internship_work_description_bullets":
+                if not isinstance(e.value, list):
+                    failed_fields.append({
+                        "field": e.field,
+                        "message": "Value must be a list of strings."
+                    })
+                    continue
+                if state["internship"].entry.internship_work_description_bullets is None:
+                    state["internship"].entry.internship_work_description_bullets = []
+                state["internship"].entry.internship_work_description_bullets.extend(e.value)
+            else:
+                if isinstance(e.value, list):
+                    if len(e.value) == 1:
+                        setattr(state["internship"].entry, e.field, e.value[0])
+                    else:
+                        failed_fields.append({
+                            "field": e.field,
+                            "message": "Value must be a single string."
+                        })
+                else:
+                    setattr(state["internship"].entry, e.field, e.value)
+
+        print(f"✅ Internship entry state updated.", state["internship"].entry)
+
+        key = f"state:{user_id}:{resume_id}:internship"
+
+        # Load existing state from Redis if present
+        saved_state = r.get(key)
+        if saved_state:
+            if isinstance(saved_state, bytes):   # handle redis-py default
+                saved_state = saved_state.decode("utf-8")
+            saved_state = json.loads(saved_state)
+        else:
+            saved_state = {"entry": {}, "retrived_info": "None"}
+
+        # Update entry while preserving retrived_info
+        saved_state["entry"] = state["internship"].entry.model_dump()
+
+        # Save back to Redis
+        status = r.set(key, json.dumps(saved_state))
+
+        return {
+            "status": "success" if status else "failed",
+            "failed_fields": failed_fields
+        }
+
+    except Exception as e:
+        print(f"❌ Error updating internship entry state: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
+@tool
+async def get_entry_by_company_name(
+    company_name: str,
+    state: Annotated[SwarmResumeState, InjectedState],
+    config: RunnableConfig
+):
+    """get the internship entry by company name."""
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        resume = get_resume(user_id, resume_id)
+        
+        entries = resume.get("internships", [])
+        
+        if len(entries) == 0:
+            raise ValueError("No internship entries found in the resume.Add an entry first.")
+        
+        entry = next((e for e in entries if e.get("company_name", "").lower() == company_name.lower()), None)
+        
+        if not entry:
+            raise ValueError(f"No internship entry found for company '{company_name}'.")
+        
+        key = f"state:{user_id}:{resume_id}:internship"
+
+        # Load existing state from Redis if present
+        saved_state = r.get(key)
+        if saved_state:
+            if isinstance(saved_state, bytes):   # handle redis-py default
+                saved_state = saved_state.decode("utf-8")
+            saved_state = json.loads(saved_state)
+        else:
+            saved_state = {"entry": {}, "retrived_info": "None"}
+        
+        
+        # Update entry while preserving retrived_info
+        saved_state["entry"] = entry
+        
+
+        # Save back to Redis
+        status = r.set(key, json.dumps(saved_state))
+
+        return {
+            "status": "success" if status else "failed",
+        }
+
+    except Exception as e:
+        print(f"❌ Error getting entry by company name: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
+@tool
+async def get_entry_by_index(
+    index: int,
+    state: Annotated[SwarmResumeState, InjectedState],
+    config: RunnableConfig
+):
+    """get the internship entry by index.Index starts from 0."""
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+
+        if not user_id or not resume_id:
+            raise ValueError("Missing user_id or resume_id in context.")
+
+        resume = get_resume(user_id, resume_id)
+
+        entries = resume.get("internships", [])
+        
+        if len(entries) == 0:
+            raise ValueError("No internship entries found in the resume.Add an entry first.")
+
+        if index < 0 or index >= len(entries):
+            raise ValueError(f"Invalid index: {index}. Index must be between 0 and {len(entries) - 1}.")
+
+        entry = entries[index]
+        
+        
+        key = f"state:{user_id}:{resume_id}:internship"
+
+        # Load existing state from Redis if present
+        saved_state = r.get(key)
+        
+        
+        # Update entry while preserving retrived_info
+        saved_state["entry"] = entry
+
+        # Save back to Redis
+        status = r.set(key, json.dumps(saved_state))
+
+        return {
+            "status": "success" if status else "failed",
+        }
+
+    except Exception as e:
+        print(f"❌ Error getting entry by company name: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+tools = [
+    # internship_Tool, 
+    # reorder_Tool,
+    update_entry_state,
+    transfer_to_update_internship_agent,
+        #  reorder_bullet_points_tool,
+        # internship_bullet_tool,
+        # human_assistance,
+        # use_knowledge_base,
+        # get_compact_internship_entries,
+        # get_internship_entry_by_index,
+        # get_full_internship_entries,
+        ]
+
+
+updater_tools = [get_entry_by_company_name,get_entry_by_index,update_entry_state,transfer_to_add_internship_agent,transfer_to_enhancer_pipeline]
+
+transfer_tools = [transfer_to_main_agent, transfer_to_por_agent,
          transfer_to_workex_agent, transfer_to_education_agent,
          transfer_to_scholastic_achievement_agent, transfer_to_extra_curricular_agent]
     

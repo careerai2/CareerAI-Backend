@@ -5,7 +5,7 @@ import json
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
-
+from redis_config import redis_client as r
 
 
 
@@ -68,6 +68,11 @@ async def update_top_level_field(
                     resume[field].append(val)
                     existing_values.add(val)
         else:
+            if isinstance(value, list):
+                if len(value) == 1:
+                    value = value[0]  # unwrap single-element list
+            else:
+                raise ValueError(f"Field '{field}' expects a string, but got a list: {value}")
             resume[field] = value
 
         # Save and send patch
@@ -76,13 +81,33 @@ async def update_top_level_field(
 
         print(f"✅ Field '{field}' updated for {user_id}")
 
-        return resume
+        return {"status": True}
 
     except Exception as e:
         print(f"❌ Error updating field '{field}' in resume: {e}")
+        return {"status": False,"error": str(e)}
 
 
+@tool
+async def get_full_resume(config: RunnableConfig):
+    """
+    Get entire resume of the user.
+    Returns: user's resume .
+    """
+    try:
+        user_id = config["configurable"].get("user_id")
+        resume_id = config["configurable"].get("resume_id")
+        
+        entries_raw = r.get(f"resume:{user_id}:{resume_id}")
+        resume_data = json.loads(entries_raw) if entries_raw else {}
 
-tools = [update_top_level_field, transfer_to_extra_curricular_agent, transfer_to_por_agent,
+        return resume_data
+
+    except Exception as e:
+        print(f"Error in get_full_resume: {e}")
+        return {"error": "Failed to retrieve full resume","message":str(e)}
+
+
+tools = [update_top_level_field, get_full_resume, transfer_to_extra_curricular_agent, transfer_to_por_agent,
          transfer_to_workex_agent, transfer_to_internship_agent
          ,transfer_to_education_agent,transfer_to_scholastic_achievement_agent]

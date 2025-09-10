@@ -16,6 +16,8 @@ from langchain_core.messages.utils import (
 )
 from ..utils.common_tools import calculate_tokens
 from utils.safe_trim_msg import safe_trim_messages
+import assistant.resume.chat.token_count as token_count
+
 # ---------------------------
 # 1. Define State
 # ---------------------------
@@ -65,8 +67,7 @@ def call_por_model(state: SwarmResumeState, config: RunnableConfig):
         location, duration, responsibilities (List[str])
 
         --- Current Entries (Compact Version) ---
-        Use `get_compact_por_entries` to retrieve index, role, organization, duration, 
-        and responsibilities count. Do not include full responsibilities content here; fetch only if needed.
+        {latest_entries if latest_entries else "None"}
 
         Remember:
         - Always use the index from compact entries when calling `position_of_responsibility_tool`.
@@ -79,6 +80,11 @@ def call_por_model(state: SwarmResumeState, config: RunnableConfig):
     
 
     response = llm_internship.invoke([system_prompt] + messages, config)
+    
+        
+    token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+    token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+
 
     print("POR Response Token Usage:", response.usage_metadata)
 

@@ -1,8 +1,7 @@
 from langgraph.graph import StateGraph
 from models.resume_model import ResumeLLMSchema
-from ..handoff_tools import transfer_to_education_agent, transfer_to_internship_agent
 from ..llm_model import llm,SwarmResumeState
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage,AIMessage,ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
@@ -16,6 +15,9 @@ from ..utils.common_tools import calculate_tokens
 from langchain_core.messages import HumanMessage
 
 from utils.safe_trim_msg import safe_trim_messages
+import assistant.resume.chat.token_count as token_count
+
+
 # ---------------------------
 # 1. LLM Setup
 # ---------------------------
@@ -33,7 +35,7 @@ def call_model(state: SwarmResumeState, config: RunnableConfig):
     user_id = config["configurable"].get("user_id")
     resume_id = config["configurable"].get("resume_id")
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
-    print(f"Calling Main model for user {user_id} with resume {resume_id}")
+    print(f"Calling Main model for user {user_id} with resume {resume_id} and tailoring_key = {tailoring_keys[0]}")
 
     latest_resume = state.get("resume_schema", {})
     
@@ -54,24 +56,28 @@ def call_model(state: SwarmResumeState, config: RunnableConfig):
     You are the **Main Resume Assistant**, acting like a mentor to guide the user in building a strong, well-organized resume.  
     Your job is to **mentor, guide, and route** the user to the right agent for each section.
 
+    **The actual resume is stored in cache which is get updated by the tools when you call it so you have no need to build it from scratch. You can confirm this.**
+
+    **You can use get_full_resume to retrieve the entire resume.Useful when you need to see all the information at once.**
+
     **You handle top-level fields:** name, title, summary, email, phone_number, skills, and interests.  
     - Update these in real time if data is available.  
     - Suggest relevant skills for the targeted roles: {tailoring_keys}.  
     - For interests, ask the user or update/delete as needed.
 
-    **Other sections are handled by agents:**  
-    - Education → Education Agent  
-    - Internships → Internship Agent  
-    - Work Experience → Work Experience Agent  
-    - Extra Curricular → Extra Curricular Agent  
-    - Positions of Responsibility → Positions of Responsibility Agent  
-    - Scholastic Achievements → Scholastic Achievements Agent  
+    **Other sections are handled by agents: You can transfer them when needed don't handle these section yourself**  
+    - Education → transfer_to_education_agent  
+    - Internships → transfer_to_internship_agent  
+    - Work Experience → transfer_to_workex_agent  
+    - Extra Curricular → transfer_to_extra_curricular_agent  
+    - Positions of Responsibility → transfer_to_por_agent  
+    - Scholastic Achievements → transfer_to_scholastic_achievement_agent  
 
     **Rules:**  
-    - Keep responses short and concise.  
+    - Keep responses short and concise of around 80-90 words.  
     - Don’t repeat points already in the resume.  
 
-    **Current Resume Context:**  
+    **Current Resume Context:Only top level fields**  
     ```json
     {filtered_resume}
     ```
@@ -79,6 +85,7 @@ def call_model(state: SwarmResumeState, config: RunnableConfig):
 )
 
     try:
+        # messages =state["messages"]
         messages = safe_trim_messages(state["messages"], max_tokens=1024)
     
     # print(messages)
@@ -91,12 +98,22 @@ def call_model(state: SwarmResumeState, config: RunnableConfig):
         response = llm.invoke([system_prompt] + messages, config)
 
         print(f"Token Usage (Output): {response.usage_metadata}")
+        
+        
+        token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
+        # print("Total Input Tokens:", token_count.total_Input_Tokens)
+        # print("Total Output Tokens:", token_count.total_Output_Tokens)
+
+        print("response:", response)
         
         return {"messages": [response]}
     except Exception as e:
         print("Error occurred while calling main model:", e)
         # return {"messages": [HumanMessage(content="An error occurred while processing your request.")]}
+
+
 
 def should_continue(state: SwarmResumeState):
     last_message = state["messages"][-1]

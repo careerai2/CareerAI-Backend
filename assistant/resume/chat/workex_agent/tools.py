@@ -266,9 +266,6 @@ async def reorder_tool(operations: list[MoveOperation], config: RunnableConfig) 
         return {"status":"error", "message": str(e)}
 
 
-
-
-
 # ---- Tool function ----
 @tool(
     name_or_callable="reorder_projects_tool",
@@ -420,10 +417,92 @@ async def reorder_project_description_bullets_tool(
 
 
 
-tools = [workex_Tool,reorder_tool,reorder_projects_tool,                     
+
+
+# ------ Retrival Tool -------------
+# @tool(
+#     description=(
+#         "Retrieves the most relevant and exact information for a given role, section, "
+#         "and field from the knowledge base. Returns action verbs, skills, guidelines, "
+#         "good to have - must have or examples.")
+# )
+# async def use_knowledge_base(
+#     query_text: str,
+#     config: RunnableConfig,
+#     section: Literal["Internship","Skills"],
+#     field: Literal["ActionVerbs","GoodTOHave","MustHave","Guidelines"],
+#     n_results: int = 5,
+#     similarity_threshold: float = 0.45,  # good for cosine distance
+# ):
+#     """
+#     Use it for if you need to fetch exact action verbs, must-haves, good-to-haves, or guidelines for a specific resume section.
+#     Always use before creating or editing an entry.
+#     Precise retrieval tool for LLMs.
+#     Uses semantic search + metadata filters.
+#     """
+#     try:
+#         query_embedding = embeddings.embed_query(query_text)
+#         role = config["configurable"].get("tailoring_keys")
+
+#         # ---- Build dynamic filters ----
+#         conditions = []
+#         if role:
+#             if isinstance(role, list) and len(role) > 1:
+#                 conditions.append({"$or": [{"role": r} for r in role]})
+#             else:
+#                 conditions.append({"role": role[0] if isinstance(role, list) else role})
+#         if section:
+#             conditions.append({"section": section})
+#         if field:
+#             conditions.append({"field": field})
+
+#         where_filter = {"$and": conditions} if conditions else {}
+
+#         # ---- Query Chroma ----
+#         results = collection.query(
+#             query_embeddings=[query_embedding],
+#             n_results=n_results,
+#             where=where_filter,
+#             include=["documents", "distances", "metadatas"],
+#         )
+
+#         retrieved_texts = []
+#         for doc_list, dist_list in zip(results["documents"], results["distances"]):
+#             for doc, dist in zip(doc_list, dist_list):
+#                 # keep only close (similar) results
+#                 if dist > similarity_threshold:
+#                     continue
+#                 # parse JSON arrays if present
+#                 if isinstance(doc, str) and doc.startswith("["):
+#                     try:
+#                         parsed = json.loads(doc)
+#                         if isinstance(parsed, list):
+#                             retrieved_texts.extend(parsed)
+#                         else:
+#                             retrieved_texts.append(parsed)
+#                     except Exception:
+#                         retrieved_texts.append(doc)
+#                 else:
+#                     retrieved_texts.append(doc)
+
+#         # ---- Deduplicate & return ----
+#         retrieved_texts = list(dict.fromkeys(map(str, retrieved_texts)))
+#         result = "\n".join(retrieved_texts)
+
+#         return result if result else "No relevant information found."
+
+#     except Exception as e:
+#         return {"status": "error", "message": str(e)}
+
+
+
+tools = [workex_Tool,
+        #  use_knowledge_base,
+         reorder_tool,
+         reorder_projects_tool,                     
          reorder_project_description_bullets_tool, 
-         get_compact_work_experience_entries,
-         get_work_experience_entry_by_index,
+        #  get_compact_work_experience_entries,
+        #  get_work_experience_entry_by_index,
          transfer_to_extra_curricular_agent, transfer_to_por_agent,
          transfer_to_scholastic_achievement_agent, transfer_to_internship_agent
          ,transfer_to_education_agent, transfer_to_main_agent

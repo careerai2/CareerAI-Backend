@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, END
 from langgraph.types import Command
 from langgraph.prebuilt import ToolNode
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage,AIMessage,ToolMessage
 from langchain_core.runnables import RunnableConfig
 from typing_extensions import TypedDict, Annotated
 from langgraph.graph.message import add_messages
@@ -15,6 +15,7 @@ from langchain_core.messages.utils import (
 from ..utils.common_tools import calculate_tokens
 from textwrap import dedent
 from utils.safe_trim_msg import safe_trim_messages
+import assistant.resume.chat.token_count as token_count
 # ---------------------------
 # 2. LLM with Tools
 # ---------------------------
@@ -25,6 +26,10 @@ llm_internship = llm.bind_tools(tools)
 # 3. Node Function
 # ---------------------------
 
+
+class InternshipState(SwarmResumeState):
+    pass
+
 def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
    
     user_id = config["configurable"].get("user_id")
@@ -34,42 +39,55 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     # print(f"[Internship Agent] Handling user {user_id} for resume {resume_id} with tailoring keys {tailoring_keys}")
     
     # latest_entries = state.get("resume_schema", {}).get("internships", [])
+    
+    current_entries = state.get("resume_schema", {}).get("internships", [])
+    # current_entries = compact_internship_entries(state.get("resume_schema", {}).get("internships", []))
 
     system_prompt = SystemMessage(
-        content=dedent(f"""
-        You are the **Internship Assistant** for a Resume Builder. 
-        Act as a helpful mentor guiding the user to build a strong Internship section.
+    content=dedent(f"""
+        You are the Internship Assistant for a Resume Builder.
+        Your role: refine and optimize the Internship section with precision, brevity, and tailoring.
 
-        --- Responsibilities ---
-        1. Collect internship info (Company, Role, Duration, Location, Achievements).
-        2. Focus on roles: {tailoring_keys}. Highlight relevant details in **short responses (~60-70 words)**.
-        3. Use `internship_tool` to add/update/delete entries (**provide index & type(use your judgment to get it)**). 
-        Never ask the user for indexes; decide yourself using current entries.
-        4. Move entries using `reorder_tool` & `reorder_bullet_points_tool` if needed.
-        5. Ask **one question at a time**. Do **not** show changes — resume is live-previewed.
+        --- Workflow ---
+        • Ask one clear, single-step question at a time.
+        • Use tools (internship_Tool, internship_bullet_tool, reorder_Tool) as needed.
+        • Decide indexes and update types (add/update/delete) yourself — never ask the user.
+        • Use use_knowledge_base to fetch exact action verbs, must-haves, and good-to-haves. Present them first in concise bullet points before creating or editing an entry.
+        • Keep outputs concise (~60–70 words max).
 
-        --- Internship Schema ---
-        company_name, company_description, location, designation, designation_description, 
-        duration, internship_work_description_bullets (List[str])
+        --- Schema ---
+        {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
 
-        --- Current Entries (Compact Version) ---
-        Use `get_compact_internship_entries` to retrieve index, company_name, designation, duration, 
-        and a short summary of bullets. Do not include full bullet content here; fetch only if needed.
+        --- Current Entries (Compact) ---
+        Always use the following as reference when updating internships:
+        {current_entries}
 
-        Remember:
-        - Always use the index from the compact entries when calling `internship_tool`.
-        - Keep responses short and focused (~60-70 words).
-        """)
-    )
+        --- Guidelines ---
+
+        Always reference internships by index from compact entries.
+
+        Focus on clarity, brevity, and alignment with {tailoring_keys}.
+
+        Resume updates are auto-previewed — never show raw code/JSON changes.
+
+"""))
+
+    
+    # print(system_prompt.content)
 
     
     messages = safe_trim_messages(state["messages"], max_tokens=1024)
+    # messages =state["messages"]
     
     # print(messages)
     print("Trimmed msgs length:-",len(messages))
  
 
     response = llm_internship.invoke([system_prompt] + messages, config)
+    
+    token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+    token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+
 
     print("Internship Token Usage:", response.usage_metadata)
 

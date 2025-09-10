@@ -35,6 +35,8 @@ dependencies = [
     "itsdangerous>=2.2.0",
     "python-multipart>=0.0.20",
     "pdfplumber>=0.11.7",
+    "langchain-chroma>=0.2.5",
+    "chromadb>=1.0.20",
 ]
 
 [tool.uv]

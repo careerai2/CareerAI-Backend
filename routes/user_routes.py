@@ -108,9 +108,9 @@ async def set_user_preferences(
     )
     
     
-@router.put("/save-resume")
-async def set_user_preferences(request: Request, resumeData: ResumeLLMSchema, session: AsyncSession = Depends(get_database)):
-    user_id = request.state.user["_id"]
+# @router.put("/save-resume")
+# async def set_user_preferences(request: Request, resumeData: ResumeLLMSchema, session: AsyncSession = Depends(get_database)):
+#     user_id = request.state.user["_id"]
     
 
 

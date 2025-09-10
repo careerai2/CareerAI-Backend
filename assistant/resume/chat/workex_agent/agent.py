@@ -15,6 +15,8 @@ from langchain_core.messages.utils import (
     count_tokens_approximately
 )
 from ..utils.common_tools import calculate_tokens
+from utils.safe_trim_msg import safe_trim_messages
+import assistant.resume.chat.token_count as token_count
 # ---------------------------
 # LLM with Tools
 # ---------------------------
@@ -35,51 +37,54 @@ def call_work_experience_model(state: SwarmResumeState, config: RunnableConfig):
     latest_entries = state.get("resume_schema", {}).get("work_experiences", [])
 
     system_prompt = SystemMessage(
-    content=dedent(f"""
-    You are the **Work Experience Assistant** for a Resume Builder. 
-    Act as a helpful mentor guiding the user to build a strong Work Experience section.
+    content = dedent(f"""
+        You are the **Work Experience Assistant** in a Resume Builder.
+        Guide the user to craft impactful work experience entries.
 
-    --- Responsibilities ---
-    1. Collect work experience info (Company, Role, Duration, Location, Description, Projects, Project Bullets).
-    2. Focus on roles: {tailoring_keys}. Highlight relevant details in **short responses (~60-70 words)**.
-    3. Use `workex_tool` to add/update/delete entries (**always provide index & type**). 
-       Never ask the user for indexes; decide yourself using current entries.
-    4. Rearrange entries using `reorder_tool`, `reorder_projects_tool`, and `reorder_project_description_bullets_tool` as needed.
-    5. Ask **one question at a time**. Do **not** show changes — resume is live-previewed.
+        --- Goal ---
+        - Gather details: Company, Role, Duration, Location, Descriptions, Projects, Bullets.
+        - Emphasize relevance to: {tailoring_keys}.
+        - Respond concisely (~60-70 words).
 
-    --- Work Experience Schema ---
-    company_name, company_description, location, duration, designation, designation_description,
-    projects (List[Project]), project_name, project_description, description_bullets (List[str])
+        --- Workflow ---
+        1. Collect info step by step (one question at a time).
+        2. **Use use_knowledge_base to fetch exact action verbs, must-haves, and good-to-haves. Present them first in concise bullet points before creating or editing an entry.
+        3. Modify entries with `workex_tool` (always include `index` & `type` from Current Entries).
+        4. Reorder using `reorder_tool`, `reorder_projects_tool`, or `reorder_project_description_bullets_tool` when needed.
+        5. Do not display changes; the resume is live-previewed.
 
-    --- Current Entries (Compact Version) ---
-    Use `get_compact_work_experience_entries` to retrieve index, company_name, designation, duration,
-    and projects count. Do not include full project or bullet content here; fetch only if needed.
+        --- Tools ---
+        - workex_tool → add/update/delete entries.
+        - reorder_tool → reorder entries.
+        - reorder_projects_tool → reorder projects.
+        - reorder_project_description_bullets_tool → reorder bullets.
 
-    Remember:
-    - Always use the index from the compact entries when calling `workex_tool`.
-    - Keep responses short and focused (~60-70 words).
-    """)
+        --- Schema ---
+        - company_name, company_description, location, duration, designation, designation_description  
+        - projects: [project_name, project_description, description_bullets]
+
+        --- Current Entries (Compact) ---
+        ```json
+        {latest_entries}
+        ```
+
+        --- Rules ---
+        - Infer indexes from compact entries (never ask user).  
+        - Stay concise, professional, and tailored to {tailoring_keys}.
+        """)
+
 )   
+
+    messages = safe_trim_messages(state["messages"], max_tokens=1024)
     
-    messages = trim_messages(
-        state["messages"],
-        strategy="last",
-        token_counter=count_tokens_approximately,
-        max_tokens=1024,
-        start_on="human",
-        end_on=("human", "tool"),
-    )
-    
-    
-    
-    if not messages:
-        from langchain.schema import HumanMessage
-        messages = [HumanMessage(content="")]  # or some default prompt
     
     print("Trimmed msgs length:-",len(messages))
     
 
-    response = llm_work_experience.invoke([system_prompt] + state["messages"], config)
+    response = llm_work_experience.invoke([system_prompt] + messages, config)
+
+    token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+    token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
     print("Work Experience Token Usage:", response.usage_metadata)
 

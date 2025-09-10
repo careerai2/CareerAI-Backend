@@ -340,8 +340,8 @@ async def reorder_responsibilities_tool(
 
 
 tools = [position_of_responsibility_tool,reorder_Tool,reorder_responsibilities_tool,
-         get_compact_por_entries,
-         get_por_entry_by_index,
+        #  get_compact_por_entries,
+        #  get_por_entry_by_index,
          transfer_to_extra_curricular_agent, transfer_to_main_agent,
          transfer_to_workex_agent, transfer_to_internship_agent
          ,transfer_to_education_agent,transfer_to_scholastic_achievement_agent]

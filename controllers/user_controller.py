@@ -253,6 +253,7 @@ async def get_user_by_id(user_id: int, db: AsyncIOMotorDatabase):
             # "id": user["_id"],
             "email": user["email"],
             "name": user["name"],
+            "industries": user.get("industries", []),
             # "intro": user["intro"]
         }
 
@@ -296,7 +297,9 @@ async def create_resume(template: str, tailoring_keys: list[str], user_id: str, 
             "user_id": user_id,
             **resume_entry.model_dump(),
             "tailoring_keys": tailoring_keys,
-            "template": template or ""
+            "template": template or "",
+            "created_at": datetime.now().isoformat(timespec="milliseconds") + "Z",
+            "updated_at": datetime.now().isoformat(timespec="milliseconds") + "Z"
         })
         
 

@@ -10,6 +10,8 @@ import json
 from ..llm_model import llm,SwarmResumeState
 from models.resume_model import ExtraCurricular
 from .tools import tools
+import assistant.resume.chat.token_count as token_count
+from utils.safe_trim_msg import safe_trim_messages
 
 # ---------------------------
 # 1. Define State
@@ -55,19 +57,28 @@ def call_extra_curricular_model(state: SwarmResumeState, config: RunnableConfig)
         7. If u didn't understand the request → call `transfer_to_main_agent`.
 
 
-        Extra Curricular Schema Context:
-        ```json
-        { json.dumps(ExtraCurricular.model_json_schema(), indent=2) }
-        ```
+        Extra Curricular Schema:
+        {{activity (optional), position (optional), description (optional), year (optional)}}
 
         Current Entries:
         ```json
-        { json.dumps(latest_entries, indent=2) }
+        {latest_entries}
         ```
         """
     )
+    
+    messages = safe_trim_messages(state["messages"], max_tokens=1024)
+    # messages =state["messages"]
+    
+    # print(messages)
+    print("Trimmed msgs length:-",len(messages))
 
-    response = llm_internship.invoke([system_prompt] + state["messages"], config)
+    response = llm_internship.invoke([system_prompt] + messages, config)
+    
+    token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+    token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+
+
     return {"messages": [response]}
 
 # ---------------------------

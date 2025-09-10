@@ -2,7 +2,7 @@ from pyexpat.errors import messages
 from langgraph.graph import StateGraph, END
 from langgraph.types import Command
 from langgraph.prebuilt import ToolNode
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage,AIMessage,ToolMessage
 from langchain_core.runnables import RunnableConfig
 from typing_extensions import TypedDict, Annotated
 from langgraph.graph.message import add_messages
@@ -20,6 +20,8 @@ from ..utils.common_tools import calculate_tokens
 from langchain_core.messages import convert_to_messages
 from textwrap import dedent
 from utils.safe_trim_msg import safe_trim_messages
+import assistant.resume.chat.token_count as token_count
+# from assistant.resume.chat.education_agent.functions import compact_education_entries 
 
 # ---------------------------
 # 1. Define State
@@ -41,48 +43,47 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
 
 
     latest_education = state.get("resume_schema", {}).get("education_entries", [])
+    # latest_education = compact_education_entries(state.get("resume_schema", {}).get("education_entries", []))
+    
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
     
 
     
 
     system_prompt = SystemMessage(
-    f"""
-    You are an Education Assistant for a Resume Builder. Act like a mentor guiding the user.
+            f"""
+            You are the **Education Assistant** in a Resume Builder.
 
-    Instructions:
-    {{
-        "role": "mentor",
-        "goal": "Build a strong Education section",
-        "steps": [
-            "Ask for degree, institute, start & end years, CGPA",
-            "Tailor entries to {tailoring_keys} if relevant",
-            "Use 'education_tool' to add/update entries (always include index), calculate index and type yourself",
-            "Use 'reorder_tool' with old_index → new_index when needed",
-            "Check for existing entries before adding; confirm update if exists",
-            "Route to other agents/tools if user switches section",
-            "Call 'transfer_to_main_agent' if request is unclear"
-        ]
-    }}
+            Scope: Manage only the Education section.  
+            Schema: {{college | degree | start_year | end_year | cgpa}} 
+            Target relevance: {tailoring_keys}  
 
-    Education Schema:
-    {{
-        "college": "Optional[str]",
-        "degree": "Optional[str]",
-        "start_year": "Optional[int]",
-        "end_year": "Optional[int]",
-        "cgpa": "Optional[float]"
-    }}
+            === Workflow ===
+            1. **Detect** → missing fields, timeline gaps, duplication, tailoring opportunities.  
+            2. **Ask** → one concise, essential question at a time.  
+            3. **Apply** → use `education_Tool` (add/update/delete) or `reorder_Tool` (chronology/importance). **It is your responsibilty to get the indexs from current entry and type them** 
+            4. **Verify silently** → schema valid, years consistent, Chemical Engineering relevance strong, no duplicates.  
+            5. **Escalate** → if request outside scope, transfer to correct agent.  
 
-    Current Entries: use 'get_education_entries_tool'
-    Remember:
-        - Always use the index from the compact entries when calling `internship_tool`.
-        - Keep your chat responses to the point and concise - do not repeat points added in the resume schema context.
-    """
-)
+            === Rules ===
+            - Be concise (≤60 words per user message).  
+            - No raw data dumps; only perform tool updates.  
+            - Confirm tool necessity before every call.  
+            - No redundant clarifications; assume defaults unless critical.  
+            - Optimize tailoring → emphasize achievements, metrics, academic rigor.  
 
-    
+            === Current Snapshot ===
+            ```json
+            {latest_education}
+            ```
+            """
+        )
+
+    print(system_prompt)
+
+
     messages = safe_trim_messages(state["messages"], max_tokens=1024)
+    # messages =state["messages"]
 
     print("Trimmed msgs length:-",len(messages))
 
@@ -90,6 +91,10 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
         response = llm_education.invoke([system_prompt] + messages, config)
 
         print("Education Response Token Usage:", response.usage_metadata)
+
+        token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+
 
         return {"messages": [response]}
     except Exception as e:
@@ -100,9 +105,9 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
 # ---------------------------
 # 4. Conditional Routing
 # ---------------------------
-
 def should_continue(state: SwarmResumeState):
     last_message = state["messages"][-1]
+    # print(last_message)
     return "continue" if last_message.tool_calls else "end"
 
 # ---------------------------

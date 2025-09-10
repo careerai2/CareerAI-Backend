@@ -19,6 +19,8 @@ from assistant.resume.chat.utils.common_tools import get_tailoring_keys
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
+import assistant.resume.chat.token_count as token_count
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
@@ -85,7 +87,12 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: As
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    await app.state.connection_manager.connect(websocket)
+    # await app.state.connection_manager.connect(websocket)
+    user_id = await app.state.connection_manager.connect(websocket)
+    if not user_id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     tailoring_keys = get_tailoring_keys(str(user["_id"]), resume_id) or resume.get("tailoring_keys", [])
     # print(f"User {user['_id']} connected to resume {resume_id} with tailoring keys: {tailoring_keys}")
     try:
@@ -107,6 +114,12 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: As
                     tailoring_keys=tailoring_keys,
                     db=postgresql_db
                 )
+                
+                
+                print("Total Input Tokens:", token_count.total_Input_Tokens)
+                print("Total Output Tokens:", token_count.total_Output_Tokens)
     except WebSocketDisconnect:
         print(f"User {user['_id']} disconnected")
-        app.state.connection_manager.active_connections.pop(user["_id"], None)
+        app.state.connection_manager.disconnect(user_id)
+        print(f"User {user_id} disconnected")
+        # app.state.connection_manager.active_connections.pop(user["_id"], None)

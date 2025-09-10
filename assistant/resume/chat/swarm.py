@@ -3,13 +3,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import AIMessage,HumanMessage
 from fastapi import WebSocket
 from models.resume_model import ResumeLLMSchema
-from .utils.common_tools import get_resume
+from .utils.common_tools import get_resume,get_graph_state
 from .utils.save_chat_msg import save_chat_message
 from langgraph_swarm import create_swarm
 
 
 from .education_agent.agent import education_assistant
-from .internship_agent.agent import internship_assistant
+from .internship_agent.agent_copy import internship_assistant
+# from .internship_agent.agent import internship_assistant
 from .main_agent.agent import main_assistant
 from .position_of_responsibility_agent.agent import position_of_responsibility_assistant
 from .workex_agent.agent import workex_assistant
@@ -17,6 +18,7 @@ from .extra_curricular_agent.agent import extra_curricular_assistant
 from .scholastic_achievement_agent.agent import scholastic_achievement_assistant
 
 from .utils.common_tools import get_resume
+from utils.mapper import agent_map ,Fields
 
 
 from langgraph.checkpoint.memory import InMemorySaver
@@ -69,33 +71,25 @@ async def update_resume(thread_id: str, new_resume: dict):
         print(f"❌ Error updating resume state: {e}")
 
 
-from enum import Enum
-
-class AgentName(str, Enum):
-    MAIN_ASSISTANT = "main_assistant"
-    EDUCATION_ASSISTANT = "education_assistant"
-    INTERNSHIP_ASSISTANT = "internship_assistant"
-    WORKEX_ASSISTANT = "workex_assistant"
-    POR_ASSISTANT = "Position_of_responsibility_assistant"
-    SCHOLASTIC_ACHIEVEMENT_ASSISTANT = "scholastic_achievement_assistant"
-    EXTRA_CURRICULAR_ASSISTANT = "extra_curricular_assistant"
 
 
 class ask_agent_input(BaseModel):
-    agent_name: AgentName
+    field: Fields
     selection: str
     question: str
 
 
 
 
-async def set_agent(thread_id: str, agent_name: ask_agent_input):
+async def set_agent(thread_id: str, field: Fields):
     """
     Set the active agent of the graph and ask about a particular section of the resume.
     """
     try:
 
+        agent_name = agent_map(field) or "main_assistant"
 
+    
         graph.update_state(
             config={
                 "configurable": {
@@ -109,6 +103,7 @@ async def set_agent(thread_id: str, agent_name: ask_agent_input):
                     ]
             }
         )
+
 
 
         print(f"Ask agent executed {thread_id}")
@@ -127,7 +122,8 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
     
 
     resume = get_resume(user_id, resume_id)
-    
+    internship_state = get_graph_state(user_id, resume_id, "internship")
+
     print(user_input)
     
     # await save_chat_message(db, user_id, resume_id, user_input, sender_role='user')
@@ -145,8 +141,8 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
 
     # For specific agent input
     if isinstance(user_input, ask_agent_input):
-        print("I am running ask_agent_input")
-        await set_agent(f"{user_id}:{resume_id}", user_input.agent_name.value)
+        # print("I am running ask_agent_input")
+        await set_agent(f"{user_id}:{resume_id}", user_input.field)
         input = (
             f"Selected part: {user_input.selection} | "
             f"Question: {user_input.question if user_input.question else 'I need help with the selected part.'}"
@@ -158,13 +154,22 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
             return
         
         input = user_input
+        thread_id=f"{user_id}:{resume_id}"
 
+        # snapshot = graph.get_state(config={"configurable": {"thread_id": thread_id}})
+        
+        # if  snapshot.values.get("messages"):
+        #     print(len(snapshot.values.get("messages")))
+        # print(snapshot.values.get("internship",{"entry":{},"retrived_info":"None"}))
+
+    
     async for event in graph.astream(
         {
             "messages": [
                 {"role": "user", "content": f"{input}"}
             ],
             "resume_schema": resume,
+            "internship": internship_state
         },
         config={
         "configurable": {
