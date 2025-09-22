@@ -20,7 +20,7 @@ import re
 # ---------------------------
 
 
-llm_internship = llm.bind_tools(tools + transfer_tools)
+llm_internship = llm.bind_tools([*tools, *transfer_tools])
 # llm_internship = llm  # tool can be added if needed
 llm_builder = llm  # tool can be added if needed
 llm_retriever = llm # tool can be added if needed
@@ -378,15 +378,33 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
     
     if save_node_response:
         state["internship"]["save_node_response"] = None  # Clear after using
-            
+    current_entries = state.get("resume_schema", {}).get("internships", [])
+    internship_state = state.get("internship", {})
+    
+ 
+    # print("Internship State in Model Call:", internship_state)
+    
+    if isinstance(internship_state, dict):
+        internship_state = InternshipState.model_validate(internship_state)
+
+    index = getattr(internship_state, "index", None)
+    
+    
+    
+    if index is not None and 0 <= index < len(current_entries):
+        entry = current_entries[index]
+    else:
+        entry = None
+              
             
     system_prompt = SystemMessage(
         content=dedent(f"""
             You are the Internship Assistant for a Resume Builder.
 
-            The user's internship info was just saved. Last node message: {save_node_response if save_node_response else ""}
-
-            Required fields: company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets.
+            The user's internship info was just saved on the focused entry. Last node message: {save_node_response if save_node_response else ""}
+            
+            -- CURRENT ENTRY IN FOCUS --
+            {entry if entry else "No entry selected."}
 
             Reply briefly and warmly. Only ask for more info if needed. Occasionally ask general internship questions to keep the chat engaging.
         """)
