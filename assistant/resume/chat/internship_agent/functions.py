@@ -8,59 +8,177 @@ from pydantic import BaseModel, field_validator
 import json
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
-from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend,load_kb
-from ..utils.update_summar_skills import update_summary_and_skills
+from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
 from ..handoff_tools import *
-from redis_config import redis_client as r 
-from assistant.resume.chat.utils.common_tools import human_assistance,send_patch_to_frontend
+from redis_config import redis_client as r , chroma_client, embeddings
+from assistant.resume.chat.utils.common_tools import send_patch_to_frontend
 from langgraph.prebuilt import InjectedState
 from models.resume_model import Internship
 # from .state import InternshipState
 from ..llm_model import SwarmResumeState,InternshipState
 
-# THINKING OF PATCHES
-# for the new one similar can be also done for update 
-async def add_internship(thread_id: str, new_internship: Internship):
+import jsonpatch
+
+
+
+# to update any field in internship state like index,retrieved_info of internship agent
+def update_internship_field(thread_id: str, field: Literal["index", "retrieved_info"], value):
     """
-    Adds a new internship to the resume and updates Redis.
+    Update any field in the internship state for a given thread_id in Redis (plain JSON string storage).
+    
+    Args:
+        thread_id (str): The unique thread/session ID.
+        field (str): The field name to update (e.g., 'index', 'retrieved_info').
+        value: The new value to set.
+    """
+    key = f"state:{thread_id}:internship"
+
+    # Fetch current JSON
+    current_resume_json = r.get(key)
+    if current_resume_json:
+        current_resume = json.loads(current_resume_json)
+    else:
+        # Default structure if key doesn't exist
+        current_resume = {"retrieved_info": "None", "index": None, "pathches": []}
+
+    # Update the desired field
+    current_resume[str(field)] = value
+
+    # Save it back
+    r.set(key, json.dumps(current_resume))
+    print(f"Updated field '{field}' to '{value}' for thread {thread_id}.")
+    
+    
+
+
+
+# CAN BE MORE OPTIMIZED WILL DO LATER
+async def apply_patches(thread_id: str, patches: list[dict]):
+    """
+    Adds or updates an internship in the resume and syncs with Redis + frontend.
     """
     try:
-        # print("Adding internship:", thread_id)
-
-        # 1. Load existing resume
-        current_resume_raw = r.get(f"resume:{thread_id}")
-        if current_resume_raw:
-            current_resume = json.loads(current_resume_raw)
+        internship_state_raw = r.get(f"state:{thread_id}:internship")
+        if internship_state_raw:
+            internship_state = json.loads(internship_state_raw)
+            print("Internship State from Redis:", internship_state)
+            index = int(internship_state.get("index")) if internship_state.get("index") is not None else None
         else:
-            raise ValueError("Resume not found for the given thread_id.")
+            internship_state = {}
+            index = None
 
-        # 2. Get internships list
+
+        if not patches or len(patches) == 0:
+            print("No patches to apply, skipping save.")
+            return {"status": "success", "message": "No patches to apply."}
+
+        # Load resume from Redis
+        current_resume_raw = r.get(f"resume:{thread_id}")
+        if not current_resume_raw:
+            raise ValueError("Resume not found for the given thread_id.")
+        current_resume = json.loads(current_resume_raw)
+
+        # Get internships list
         current_internships = current_resume.get("internships", [])
 
-        # print("Current internships from Redis:", current_internships)
+        current_company_names = [internship.get("company_name", "").lower().strip() for internship in current_internships if internship.get("company_name")]
 
-        # 3. Check duplicate by company_name
-        for i in current_internships:
-            if i["company_name"].lower() == new_internship.company_name.lower():
-                return {"status": "error", "message": "Internship with this company already exists."}
+        print("Current Company Names:",current_company_names)
+        
+        is_company_name_patch = any(
+    patch.get("path") == "/company_name" and patch.get("op") in ("add","replace") and patch.get("value", "").lower().strip() not in current_company_names
+    for patch in patches
+)
+        if is_company_name_patch:
+            index = None  # Force adding a new internship
 
-        # 4. Append new internship
-        current_internships.append(new_internship.model_dump())
+        # Ensure index is integer if provided
+        if index is not None:
+            try:
+                index = int(index)
+            except ValueError:
+                print(f"Invalid index provided: {index}, will create new entry.")
+                index = None
+
+        # Update existing or add new internship
+        if index is not None and 0 <= index < len(current_internships):
+            print(f"Updating internship at index {index}")
+            jsonpatch.apply_patch(current_internships[index], patches, in_place=True)
+        else:
+            print(f"Adding new internship (index={index})")
+            new_internship = Internship().model_dump()
+            jsonpatch.apply_patch(new_internship, patches, in_place=True)
+            current_internships.append(new_internship)
+            update_internship_field(thread_id, "index", len(current_internships) - 1)
+            index = len(current_internships) - 1
+
+        # Save back to Redis
         current_resume["internships"] = current_internships
-
-        # 5. Save back to Redis
         r.set(f"resume:{thread_id}", json.dumps(current_resume))
 
+        # Notify frontend
         user_id = thread_id.split(":")[0]
-
-        print("User ID:", user_id)
-        # print("Current Resume:", current_resume)
-
+        print(f"User ID: {user_id}, Applied patches: {patches}")
         await send_patch_to_frontend(user_id, current_resume)
 
-        return {"status": "success", "message": "Internship added successfully."}
+        return {"status": "success", "message": "Internship updated successfully.","index": index}
 
     except ValidationError as ve:
         return {"status": "error", "message": f"Validation error: {ve.errors()}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+
+
+
+
+# For retriever
+def query_pdf_knowledge_base(query_text, role=["internship"], n_results=5, similarity_threshold= 1, debug=True):
+    """
+    Query stored PDF chunks in Chroma with strict filtering for high specificity.
+    """
+    # 1️⃣ Embed the query
+    query_embedding = embeddings.embed_query(query_text)
+    if debug:
+        print(f"🔹 Query Text: {query_text}")
+        print(f"🔹 Query Embedding Length: {len(query_embedding)}")
+        
+    collection = chroma_client.get_or_create_collection(name="internship_guide")
+
+    # 2️⃣ Build filter
+    where_filter = {"role": {"$in": role}} if role else {}
+
+    # 3️⃣ Query Chroma
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=n_results,
+        where=where_filter,
+        include=["documents", "distances", "metadatas"],
+    )
+
+    if debug:
+        print(f"🔹 Total chunks retrieved: {len(results['documents'][0])}")
+
+    # 4️⃣ Filter by similarity
+    retrieved_texts = []
+    for doc, dist, meta in zip(results["documents"][0], results["distances"][0], results["metadatas"][0]):
+        clean_doc = " ".join(doc.split())  # collapse spaces
+        # if debug:
+        #     print(f"Distance={dist:.3f} | Role={meta.get('role')} | Text Snippet={clean_doc[:80]}...")
+        #     # continue
+        if dist < similarity_threshold:
+            retrieved_texts.append({"text": clean_doc, "distance": dist, "metadata": meta})
+        elif debug:
+            print(f"❌ Chunk excluded due to threshold (distance={dist:.3f})")
+
+    # 5️⃣ Sort and limit
+    retrieved_texts = sorted(retrieved_texts, key=lambda x: x["distance"])
+    retrieved_texts = retrieved_texts[:n_results]
+
+    if not retrieved_texts:
+        if debug:
+            print("⚠️ No relevant chunks passed the similarity threshold.")
+        return "No relevant information found."
+
+    return "\n\n".join([d['text'] for d in retrieved_texts])

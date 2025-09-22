@@ -6,8 +6,9 @@ from models.resume_model import *
 from ..llm_model import llm
 from langchain_core.tools import tool
 # from pydantic.json import 
-
-
+from utils.mapper import resume_section_map,ResumeSectionLiteral,Fields
+import jsonpatch
+from pydantic import BaseModel, field_validator,ValidationError
 
 def get_resume(user_id: str, resume_id: str) -> dict:
     """Fetch the resume for a specific user.
@@ -25,6 +26,26 @@ def get_resume(user_id: str, resume_id: str) -> dict:
     return json.loads(data) if data else {}
 
 
+def get_resume_by_threadId(thread_id: str) -> dict:
+    """Fetch the resume for a specific user.
+
+    Args:
+        user_id (str): The ID of the user whose resume is to be fetched.
+        resume_id (str): The ID of the resume to fetch.
+
+    Returns:
+        dict: The resume data for the user, or an empty dict if not found.
+    """
+    data = r.get(f"resume:{thread_id}")
+    
+    
+    return json.loads(data) if data else {}
+
+
+
+
+
+
 def get_graph_state(user_id: str, resume_id: str, key: str) -> dict:
     """Fetch the graph state for a specific user and resume."""
     try:
@@ -33,8 +54,11 @@ def get_graph_state(user_id: str, resume_id: str, key: str) -> dict:
 
         if not data:
             default_state = {
-                "entry": Internship().model_dump() if hasattr(Internship, "model_dump") else {},
-                "retrived_info": "None"
+                "retrieved_info": "None",
+                "generated_query": "",
+                "save_node_response": "",
+                "index": None,
+                "pathches": []
             }
             r.set(redis_key, json.dumps(default_state))
             return default_state
@@ -45,6 +69,10 @@ def get_graph_state(user_id: str, resume_id: str, key: str) -> dict:
     except Exception as e:
         print(f"Error fetching graph state: {e}")
         return {}
+
+
+
+
 
 
 def get_tailoring_keys(user_id: str, resume_id: str) -> list:
@@ -100,84 +128,6 @@ from langchain_core.messages.utils import (
 )
 
 
-from langgraph.types import Interrupt,interrupt
-from langchain_core.runnables import RunnableConfig
-
-
-
-@tool(
-    description="Use this tool to request assistance from a human when the task is too complex or requires subjective judgment. Provide a clear and concise query to get the best help.",
-    return_direct=True
-)
-async def human_assistance(query: str,config:RunnableConfig) -> str:
-    """Request assistance from a human."""
-    
-    user_id = config["configurable"].get("user_id")
-    
-    await app.state.connection_manager.send_json_to_user(
-        user_id,
-        {"type": "system", "message": query}
-    )
-
-    human_response = interrupt({"query": query})
-    return human_response["data"]
-
-
-def normalize_content(content: Union[str, list, dict]) -> str:
-    """Convert message content into a plain string for token counting."""
-    if isinstance(content, str):
-        return content
-    elif isinstance(content, list):
-        # Some LangChain messages are a list of chunks
-        return " ".join([normalize_content(c) for c in content])
-    elif isinstance(content, dict):
-        # Tool calls etc.
-        return str(content)
-    else:
-        return str(content)
-
-def calculate_tokens(messages: List[BaseMessage], system_prompt=None):
-    """
-    Calculate approximate token usage for input (system + messages).
-    Returns a dict with counts.
-    """
-    total_tokens = 0
-
-    # Add system prompt if present
-    if system_prompt:
-        system_text = normalize_content(system_prompt.content)
-        system_tokens = count_tokens_approximately(system_text)
-        total_tokens += system_tokens
-    else:
-        system_tokens = 0
-
-    # Add user/AI messages
-    msg_tokens = 0
-    for m in messages:
-        msg_text = normalize_content(m.content)
-        msg_tokens += count_tokens_approximately(msg_text)
-
-    total_tokens += msg_tokens
-
-    return {
-        "system_tokens": system_tokens,
-        "message_tokens": msg_tokens,
-        "input_tokens": total_tokens,
-    }
-    
-import os 
-
-def load_kb(role: str,field:str):
-    # Build the path dynamically
-    file_path = os.path.join("assistant", "resume", "roles", f"{role}.json")
-    
-    with open(file_path, "r", encoding="utf-8") as f:
-        kb = json.load(f)
-
-    # Ensure the specified field key exists
-    return kb.get(field, {})
-
-
 import re
 import json
 from typing import Optional, Dict, Any
@@ -201,3 +151,115 @@ def extract_json_from_response(content: str) -> Optional[Dict[str, Any]]:
     
     print("No valid JSON found in response")
     return None
+
+
+
+def calculate_tokens():
+    pass
+
+
+async def retrive_entry_from_resume(
+    threadId: str,
+    section: ResumeSectionLiteral,
+    entryIndex: Optional[int] = None
+):
+    try:
+        resume = get_resume_by_threadId(threadId)
+        
+        if not resume:
+            print("Resume not found")
+            return None
+
+        # Handle summary separately
+        if section == "summary":
+            return resume.get("summary", {})
+
+        # For other sections, ensure entryIndex is provided
+        if (section != "summary" and entryIndex is None):
+            print("Invalid entry index")
+            return None
+
+        # Access the section safely
+        section_entries = resume.get(section, [])
+        if entryIndex >= len(section_entries):
+            print(f"Entry index {entryIndex} out of range for section {section}")
+            return None
+
+        return section_entries[entryIndex]
+
+    except Exception as e:
+        print(f"Error while retrieving the entry. Error msg: {e}")
+        return None
+
+
+
+from typing import Optional
+
+
+async def apply_section_patches(
+    thread_id: str,
+    section: ResumeSectionLiteral,
+    patches: list[dict],
+    index: Optional[int] = None
+):
+    """
+    Adds or updates an entry in the given resume section and syncs with Redis + frontend.
+    Sections: internships, education_entries, work_experiences, achievements, etc.
+    """
+    
+    print(f"Applying patches to section '{section}' with index '{index}': {patches}")
+    try:
+        if not patches:
+            print("No patches to apply, skipping save.")
+            return {"status": "success", "message": "No patches to apply."}
+
+        # Load resume from Redis
+        current_resume_raw = r.get(f"resume:{thread_id}")
+        if not current_resume_raw:
+            raise ValueError("Resume not found for the given thread_id.")
+        current_resume = json.loads(current_resume_raw)
+
+        # Ensure section exists in resume
+        current_section = current_resume.get(section, [])
+        
+        
+        if not isinstance(current_section, list):
+            # Summary or other non-list sections
+            current_section = current_resume.get(section, {})
+
+        # Special case: summary (dict, not list)
+        if section == "summary":
+            print("Updating summary section")
+            jsonpatch.apply_patch(current_section, patches, in_place=True)
+            current_resume[section] = current_section
+
+        else:
+            # Ensure index handling
+            if index is not None:
+                try:
+                    index = int(index)
+                except ValueError:
+                    print(f"Invalid index provided: {index}, will create new entry.")
+                    index = None
+
+            if index is not None and 0 <= index < len(current_section):
+                print(f"Updating existing entry at index {index} in section '{section}'")
+                jsonpatch.apply_patch(current_section[index], patches, in_place=True)
+
+            # Save section back
+            current_resume[section] = current_section
+
+        # Save back to Redis
+        r.set(f"resume:{thread_id}", json.dumps(current_resume))
+
+        # Notify frontend
+        user_id = thread_id.split(":")[0]
+        print(f"User ID: {user_id}, Section: {section}, Applied patches: {patches}")
+        await send_patch_to_frontend(user_id, current_resume)
+
+        return {"status": "success", "message": f"{section} updated successfully.", "index": index}
+
+    except ValidationError as ve:
+        return {"status": "error", "message": f"Validation error: {ve.errors()}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

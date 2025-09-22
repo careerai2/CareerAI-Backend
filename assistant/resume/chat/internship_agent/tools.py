@@ -8,14 +8,13 @@ from pydantic import BaseModel, field_validator
 import json
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
-from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend,load_kb
+from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
 from ..utils.update_summar_skills import update_summary_and_skills
 from ..handoff_tools import *
 from redis_config import redis_client as r 
-from assistant.resume.chat.utils.common_tools import human_assistance
 from langgraph.prebuilt import InjectedState
 from models.resume_model import Internship
-# from .state import InternshipState
+from .functions import update_internship_field 
 from ..llm_model import SwarmResumeState,InternshipState
 from .handoff_tools import transfer_to_enhancer_pipeline,transfer_to_add_internship_agent,transfer_to_update_internship_agent
 
@@ -529,7 +528,7 @@ def fetch_internship_info(fields: Union[str, list[str]], config: RunnableConfig)
 
         role = config["configurable"].get("tailoring_keys")
         print(f"[fetch_internship_info] Role: {role}")
-        INTERNSHIP_KB = load_kb(role[0], "Internship") if role else load_kb("General", "Internship")
+        INTERNSHIP_KB = "Nothing"
         print(f"[fetch_internship_info] Loaded KB keys: {list(INTERNSHIP_KB.keys())}")
 
         results = {}
@@ -582,85 +581,136 @@ class entryStateInput(BaseModel):
     ]
     value: str | list[str]
 
+# @tool
+# async def update_entry_state(
+#     entry: list[entryStateInput],
+#     state: Annotated[SwarmResumeState, InjectedState],
+#     config: RunnableConfig
+# ):
+#     """Update the internship sub-state within SwarmResumeState."""
+#     try:
+#         user_id = config["configurable"].get("user_id")
+#         resume_id = config["configurable"].get("resume_id")
+
+#         if not user_id or not resume_id:
+#             raise ValueError("Missing user_id or resume_id in context.")
+
+#         print("STATE BEFORE UPDATE:", state["internship"].entry)
+#         print(f"🔄 Updating internship entry state with: {entry}")
+
+#         if not entry:
+#             raise ValueError("Missing 'entry' for state update operation.")
+
+#         # Ensure the internship sub-state exists
+#         if state["internship"] is None:
+#             raise ValueError("Internship state not initialized.")
+
+#         # Ensure the entry object exists
+#         if state["internship"].entry is None:
+#             state["internship"].entry = Internship()
+
+#         failed_fields = []
+
+#         for e in entry:
+#             if e.field == "internship_work_description_bullets":
+#                 if not isinstance(e.value, list):
+#                     failed_fields.append({
+#                         "field": e.field,
+#                         "message": "Value must be a list of strings."
+#                     })
+#                     continue
+#                 if state["internship"].entry.internship_work_description_bullets is None:
+#                     state["internship"].entry.internship_work_description_bullets = []
+#                 state["internship"].entry.internship_work_description_bullets.extend(e.value)
+#             else:
+#                 if isinstance(e.value, list):
+#                     if len(e.value) == 1:
+#                         setattr(state["internship"].entry, e.field, e.value[0])
+#                     else:
+#                         failed_fields.append({
+#                             "field": e.field,
+#                             "message": "Value must be a single string."
+#                         })
+#                 else:
+#                     setattr(state["internship"].entry, e.field, e.value)
+
+#         print(f"✅ Internship entry state updated.", state["internship"].entry)
+
+#         key = f"state:{user_id}:{resume_id}:internship"
+
+#         # Load existing state from Redis if present
+#         saved_state = r.get(key)
+#         if saved_state:
+#             if isinstance(saved_state, bytes):   # handle redis-py default
+#                 saved_state = saved_state.decode("utf-8")
+#             saved_state = json.loads(saved_state)
+#         else:
+#             saved_state = {"entry": {}, "retrived_info": "None"}
+
+#         # Update entry while preserving retrived_info
+#         saved_state["entry"] = state["internship"].entry.model_dump()
+
+#         # Save back to Redis
+#         status = r.set(key, json.dumps(saved_state))
+
+#         return {
+#             "status": "success" if status else "failed",
+#             "failed_fields": failed_fields
+#         }
+
+#     except Exception as e:
+#         print(f"❌ Error updating internship entry state: {e}")
+#         return {"status": "error", "message": str(e)}
+
+
+import jsonpatch
+
 @tool
-async def update_entry_state(
-    entry: list[entryStateInput],
+async def send_patches(
+    patches: list[dict],   # <-- instead of entry
     state: Annotated[SwarmResumeState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig
 ):
-    """Update the internship sub-state within SwarmResumeState."""
+    """Apply JSON patches to the internship sub-state within SwarmResumeState."""
     try:
+        
+        print("PATCH:", patches)
+        
         user_id = config["configurable"].get("user_id")
         resume_id = config["configurable"].get("resume_id")
 
         if not user_id or not resume_id:
             raise ValueError("Missing user_id or resume_id in context.")
 
-        print("STATE BEFORE UPDATE:", state["internship"].entry)
-        print(f"🔄 Updating internship entry state with: {entry}")
+        if not patches:
+            raise ValueError("Missing 'patches' for state update operation.")
+        
+        index = getattr(state["internship"], "entry", None)
+        
+        
+        tool_message = ToolMessage(
+            content="Successfully transferred to internship_model",
+            name="handoff_to_internship_model",
+            tool_call_id=tool_call_id,
+        )
 
-        if not entry:
-            raise ValueError("Missing 'entry' for state update operation.")
-
-        # Ensure the internship sub-state exists
-        if state["internship"] is None:
-            raise ValueError("Internship state not initialized.")
-
-        # Ensure the entry object exists
-        if state["internship"].entry is None:
-            state["internship"].entry = Internship()
-
-        failed_fields = []
-
-        for e in entry:
-            if e.field == "internship_work_description_bullets":
-                if not isinstance(e.value, list):
-                    failed_fields.append({
-                        "field": e.field,
-                        "message": "Value must be a list of strings."
-                    })
-                    continue
-                if state["internship"].entry.internship_work_description_bullets is None:
-                    state["internship"].entry.internship_work_description_bullets = []
-                state["internship"].entry.internship_work_description_bullets.extend(e.value)
-            else:
-                if isinstance(e.value, list):
-                    if len(e.value) == 1:
-                        setattr(state["internship"].entry, e.field, e.value[0])
-                    else:
-                        failed_fields.append({
-                            "field": e.field,
-                            "message": "Value must be a single string."
-                        })
-                else:
-                    setattr(state["internship"].entry, e.field, e.value)
-
-        print(f"✅ Internship entry state updated.", state["internship"].entry)
-
-        key = f"state:{user_id}:{resume_id}:internship"
-
-        # Load existing state from Redis if present
-        saved_state = r.get(key)
-        if saved_state:
-            if isinstance(saved_state, bytes):   # handle redis-py default
-                saved_state = saved_state.decode("utf-8")
-            saved_state = json.loads(saved_state)
-        else:
-            saved_state = {"entry": {}, "retrived_info": "None"}
-
-        # Update entry while preserving retrived_info
-        saved_state["entry"] = state["internship"].entry.model_dump()
-
-        # Save back to Redis
-        status = r.set(key, json.dumps(saved_state))
-
-        return {
-            "status": "success" if status else "failed",
-            "failed_fields": failed_fields
-        }
+        
+  
+        return Command(
+            goto="query_generator_model",
+            update={
+                "messages": state["messages"] + [tool_message],
+                "internship": {
+                    "retrived_info": "",
+                    "patches": patches,
+                    "index": index,
+                },
+            },
+        )
 
     except Exception as e:
-        print(f"❌ Error updating internship entry state: {e}")
+        print(f"❌ Error applying internship entry patches: {e}")
         return {"status": "error", "message": str(e)}
 
 
@@ -705,6 +755,7 @@ async def get_entry_by_company_name(
         
         # Update entry while preserving retrived_info
         saved_state["entry"] = entry
+        saved_state["index"] = entries.index(entry)
         
 
         # Save back to Redis
@@ -721,12 +772,12 @@ async def get_entry_by_company_name(
 
 
 @tool
-async def get_entry_by_index(
+async def update_index_and_focus(
     index: int,
     state: Annotated[SwarmResumeState, InjectedState],
     config: RunnableConfig
 ):
-    """get the internship entry by index.Index starts from 0."""
+    """Update the index and fetch the corresponding internship entry on which focus is needed."""
     try:
         user_id = config["configurable"].get("user_id")
         resume_id = config["configurable"].get("resume_id")
@@ -734,33 +785,21 @@ async def get_entry_by_index(
         if not user_id or not resume_id:
             raise ValueError("Missing user_id or resume_id in context.")
 
-        resume = get_resume(user_id, resume_id)
+        resume= state.get("resume_schema", {})
+        current_entries = getattr(resume, "internships", [])
 
-        entries = resume.get("internships", [])
-        
-        if len(entries) == 0:
+        if len(current_entries) == 0:
             raise ValueError("No internship entries found in the resume.Add an entry first.")
-
-        if index < 0 or index >= len(entries):
-            raise ValueError(f"Invalid index: {index}. Index must be between 0 and {len(entries) - 1}.")
-
-        entry = entries[index]
+        if index < 0 or index >= len(current_entries):
+            raise IndexError("Index out of range for internship entries.")
+        entry = current_entries[index]
+            
+        update_internship_field(f"""{user_id}:{resume_id}""", "index", index)
         
-        
-        key = f"state:{user_id}:{resume_id}:internship"
-
-        # Load existing state from Redis if present
-        saved_state = r.get(key)
-        
-        
-        # Update entry while preserving retrived_info
-        saved_state["entry"] = entry
-
-        # Save back to Redis
-        status = r.set(key, json.dumps(saved_state))
 
         return {
-            "status": "success" if status else "failed",
+            "status": "success",
+            "entry": entry,
         }
 
     except Exception as e:
@@ -770,20 +809,19 @@ async def get_entry_by_index(
 
 tools = [
     # internship_Tool, 
-    # reorder_Tool,
-    update_entry_state,
-    transfer_to_update_internship_agent,
+    send_patches,
+    update_index_and_focus,
+    # transfer_to_enhancer_pipeline,
+    # transfer_to_update_internship_agent,
         #  reorder_bullet_points_tool,
         # internship_bullet_tool,
         # human_assistance,
         # use_knowledge_base,
         # get_compact_internship_entries,
         # get_internship_entry_by_index,
-        # get_full_internship_entries,
+        get_full_internship_entries,
         ]
 
-
-updater_tools = [get_entry_by_company_name,get_entry_by_index,update_entry_state,transfer_to_add_internship_agent,transfer_to_enhancer_pipeline]
 
 transfer_tools = [transfer_to_main_agent, transfer_to_por_agent,
          transfer_to_workex_agent, transfer_to_education_agent,

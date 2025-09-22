@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional
 import re
 from app_instance import app
 from langgraph.types import Interrupt,interrupt
-from .functions import add_internship
+from .functions import add_internship,update_internship
 from redis_config import redis_client as r 
 # ---------------------------
 # 2. LLM with Tools
@@ -79,25 +79,22 @@ llm_builder = llm.bind_tools([])
 #     return state["internship"].entry
 
 
-async def human_assistance(query: str,config:RunnableConfig) -> str:
-    """Request assistance from a human."""
-    
-    user_id = config["configurable"].get("user_id")
-    
-    await app.state.connection_manager.send_json_to_user(
-        user_id,
-        {"type": "system", "message": query}
-    )
-
-    human_response = interrupt({"query": query})
-    return human_response["data"]
-
-
 
 def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for internship assistant with immediate state updates."""
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
-    # current_entries = state.get("resume_schema", {}).get("internships", [])
+    current_entries = state.get("resume_schema", {}).get("internships", [])
+    
+    tailored_current_entries = [
+        {
+            "index": idx,
+            "company_name": entry.get("company_name"),
+        }
+        for idx, entry in enumerate(current_entries)
+    ]
+    
+    print("Tailored current entries:", tailored_current_entries)
+
     
     internship_state = state["internship"]
     if isinstance(internship_state, dict):
@@ -127,13 +124,18 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
         • use "transfer_to_update_internship_agent" tool when user wants to update existing internship entry.
         • Do **not** wait until all fields are collected; update the state progressively, one field at a time.
         • Never skip tool invocation if a field is mentioned, even partially filled.
-
+        • `transfer_to_enhancer_pipeline`: to update in the final resume entry by enhancing it call it when most of the fields are updated **ALWAYS call this after the tool `update_entry_state`**. 
+        
+        
         --- Required Schema Fields ---
         {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets (as an array of strings)}}
 
-        --- Current Entries ---
+        --- Current Entries (Your Local State,uses this to track changes)---
         {entry}
 
+        --- Total Current Entries (User's Resume's Internship section have)---
+        {tailored_current_entries}
+        
         --- Guidelines ---
         • Validate all updates match schema types.
         • Use bullet points as strings in the array.
@@ -160,39 +162,59 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
 def call_updater_model(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for internship assistant with immediate state updates."""
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
-    # current_entries = state.get("resume_schema", {}).get("internships", [])
+    current_entries = state.get("resume_schema", {}).get("internships", [])
     
     internship_state = state["internship"]
     if isinstance(internship_state, dict):
         internship_state = InternshipState.model_validate(internship_state)
 
     entry = getattr(internship_state, "entry", None)
+    
+    tailored_current_entries = [
+        {
+            "index": idx,
+            "company_name": entry.get("company_name"),
+        }
+        for idx, entry in enumerate(current_entries)
+    ]
+
+    print("Tailored current entries:", tailored_current_entries)
 
 
     system_prompt = SystemMessage(
     content=dedent(f"""
-        You are the **Internship Assistant** for a Resume Builder. 
-        Your task: chat with the user to gather internship details and update entries step by step.  
-        User is targeting for roler {tailoring_keys}
-        
+        You are the **Internship Assistant** for a Resume Builder.
+        Your task: chat with the user to gather internship details and update entries step by step.
+        User is targeting for role {tailoring_keys}.
         
         --- Rules ---
-        • Ask one clear question at a time.  
-        • Keep replies under 70 words, professional but friendly.  
-        • Acknowledge input briefly, then move forward.  
-        • Update progressively: call `update_entry_state` as soon as a schema field is mentioned.  
-        • If no entry: ask for company name → else ask which entry (1st, 2nd, etc.).  
+        • Ask one clear question at a time.
+        • Keep replies under 40 words, professional but friendly.
+        • Update progressively: call `update_entry_state` as soon as a schema field is mentioned.
+        • When most of the important fields (company, role, duration, 1–2 bullets) are filled → call `transfer_to_enhancer_pipeline`.
+        • If no entry exists → ask for company name → else ask which entry (1st, 2nd, etc.).
 
         --- Tools ---
-        •  use "transfer_to_add_internship_agent" tool when user wants to add a new internship entry.
-        • `get_entry_by_company_name`: when company name is given but entry missing.***PRIORITY*** 
-        • `get_entry_by_index`: when entry index is provided.  
-        • `update_entry_state`: on every schema field update.  
+        • transfer_to_add_internship_agent → when user wants to add new entry.
+        • get_entry_by_company_name → Ask the user which entry from current Entries in resume they want to update ASAP call this tool to fill your current entry.
+        • update_entry_state → for every schema field update.  
+        • transfer_to_enhancer_pipeline → Call it to update the final resume entry by enhancing it once most fields are filled or think its is right time to add.
 
-        --- Current Entries that user want to update ---
-        {entry if entry else "No entry. Start with ***company name*** or entry index."}
+        --- Schema Fields ---
+        company_name, company_description, location, designation, 
+        designation_description, duration, internship_work_description_bullets
+
+        --- Current Entries to update ---
+        {entry if entry else "No entry. Start with company name or index."}
+
+        --- Current Entries in Resume ---
+        {tailored_current_entries}
     """)
-)
+        )
+
+    
+    
+
 
 
     messages = safe_trim_messages(state["messages"], max_tokens=512)
@@ -346,12 +368,28 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         entry = state["internship"]["entry"]
         thread_id = config["configurable"]["thread_id"]
         
+        internship_state = state["internship"]
+        if isinstance(internship_state, dict):
+            internship_state = InternshipState.model_validate(internship_state)
+
+        entry = getattr(internship_state, "entry", None)
+        index = getattr(internship_state, "index", None)
+        active_agent = getattr(internship_state, "active_agent", None)
+    
         print("Saving entry state:")
-        result  = await add_internship(thread_id, Internship.model_validate(entry))
+        print("Active Agent:", active_agent)
+        
+        if active_agent == "update_internship_agent" and index is not None:
+            result = await update_internship(thread_id, index, Internship.model_validate(entry))
+        else:
+            print("Adding new internship entry")
+            result  = await add_internship(thread_id, Internship.model_validate(entry))
+        
+        print("Result of adding internship:", result)
         
         if result["status"] == "success":
             print("internship added")
-            r.set(f"state:{thread_id}:internship", json.dumps(InternshipState().model_dump()))
+            # r.set(f"state:{thread_id}:internship", json.dumps(InternshipState().model_dump()))
 
     except Exception as e:
         print("Error in save_entry_state:", e)

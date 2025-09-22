@@ -21,6 +21,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import assistant.resume.chat.token_count as token_count
 
+from assistant.resume.chat.bullet_agent import agent_state, ask_agent_input,call_model
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
@@ -105,6 +107,13 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: As
                 print("LLM Resume state updated")
                 # await websocket.send_json({"type": "system", "message": "Resume updated in agent state"})
 
+            elif user_input["type"] == "bullet":
+                thread_id = f"{user['_id']}:{resume_id}"
+                await call_model(
+                    user_input=user_input["message"],
+                    thread_id=thread_id
+                )
+                
             elif user_input["type"] == "chat":
                 await stream_graph_to_websocket(
                     user_input=user_input["message"],

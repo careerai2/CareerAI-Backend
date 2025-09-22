@@ -3,6 +3,10 @@ import os
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 import chromadb
+# from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+
 
 redis_host = os.environ.get('REDIS_HOST', 'localhost')
 redis_port = int(os.environ.get('REDIS_PORT', 6379))  # cast to int
@@ -20,16 +24,15 @@ redis_client = redis.Redis(
 
 
 # embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-# chroma_db_port = os.environ.get('CHROMA_DB_PORT', '8000')
-# chroma_db_host = os.environ.get('CHROMA_DB_HOST', 'localhost')
 
-# chroma_client = chromadb.HttpClient(host=chroma_db_host, port=chroma_db_port)
+chroma_api_key = os.environ.get('CHROMA_API_KEY')
+chroma_tenant_id = os.environ.get('CHROMA_TENANT_ID')
+chroma_database = os.environ.get('CHROMA_DATABASE', 'Career AI')
 
-# db = Chroma(
-#     client=chroma_client,
-#     collection_name="resumes",
-#     embedding_function=embeddings
-# )
-
-# collection = chroma_client.get_collection(name="resume_guidelines")
+chroma_client = chromadb.CloudClient(
+  api_key=chroma_api_key,
+  tenant=chroma_tenant_id,
+  database=chroma_database
+)

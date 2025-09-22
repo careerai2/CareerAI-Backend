@@ -37,10 +37,12 @@ from typing import Optional,Union,Literal
 from pydantic import BaseModel,Field
 
 class InternshipState(BaseModel):
-    entry: Internship = Field(default_factory=Internship)
-    retrived_info: Optional[str] = None
-    active_agent: Literal["add_internship_agent","update_internship_agent"] = Field(default="add_internship_agent")
-
+    generated_query: Optional[str] = None
+    save_node_response: Optional[str] = None
+    retrieved_info: Optional[str] = None
+    index: Optional[int] = None
+    patches: Optional[list[dict]] = Field(default_factory=list)
+   
 
 
 

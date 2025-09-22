@@ -1,10 +1,11 @@
 
 from enum import Enum
+from typing import Literal
 
 class Fields(str, Enum):
     Summary = "summary"
     EDUCATION = "Education"
-    INTERNSHIP = "Internship"
+    INTERNSHIP = "internship"
     WORKEX = "WorkEx"
     POR = "POR"
     SCHOLASTIC_ACHIEVEMENT = "Scholastic Achievement"
@@ -25,6 +26,37 @@ def agent_map(field: Fields) -> str:
         Fields.SCHOLASTIC_ACHIEVEMENT: "scholastic_achievement_assistant",
         Fields.EXTRA_CURRICULAR: "extra_curricular_assistant"
     }.get(field, "main_assistant")
+
+
+
+ResumeSectionLiteral = Literal[
+    "education_entries",
+    "work_experiences",
+    "internships",
+    "achievements",
+    "positions_of_responsibility",
+    "extra_curriculars",
+    "certifications",
+    "academic_projects",
+    "None"
+]
+
+def resume_section_map(field: Fields) -> ResumeSectionLiteral:
+    
+    mapping = {
+        Fields.EDUCATION: "education_entries",
+        Fields.INTERNSHIP: "internships",
+        Fields.WORKEX: "work_experiences",
+        Fields.POR: "positions_of_responsibility",
+        Fields.SCHOLASTIC_ACHIEVEMENT: "achievements",
+        Fields.EXTRA_CURRICULAR: "extra_curriculars"
+    }
+    return mapping.get(field,"None")
+
+
+
+
+
 
 # agent_map = {
 #     # "Main": "main",

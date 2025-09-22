@@ -9,6 +9,7 @@ from redis_config import redis_client as r
 from langchain_core.runnables import RunnableConfig
 from models.resume_model import Internship
 import json 
+from typing import Literal
 
 
 @tool("transfer_to_enhancer_pipeline", description="once after updateing the entry pass on to this pipeline so that it can enhance and add it to the resume")
@@ -16,7 +17,7 @@ def transfer_to_enhancer_pipeline(
     state: Annotated[SwarmResumeState, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
     config:RunnableConfig
-):
+) -> Command[Literal["update_entry_model"]]:
     try:
         tool_message = ToolMessage(
             content="Successfully transferred to transfer_to_enhancer_pipeline",
@@ -29,8 +30,8 @@ def transfer_to_enhancer_pipeline(
         print("Transferring to enhancer_pipeline")
 
         return Command(
-            goto=Send("retriever_model",{"messages": state["messages"] + [tool_message]}),
-            
+            goto="retriever_model",
+            update={"messages": state["messages"] + [tool_message]},
         )
     except Exception as e:
         # Optionally, you can log the error or handle it as needed
@@ -45,7 +46,7 @@ def transfer_to_update_internship_agent(
     state: Annotated[SwarmResumeState, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig
-):
+) -> Command[Literal["update_entry_model"]]:
     try:
         tool_message = ToolMessage(
             content="Successfully transferred to internship_model",
@@ -79,7 +80,7 @@ def transfer_to_update_internship_agent(
 
         # Update graph state directly
         return Command(
-            goto=Send("update_entry_model", state),
+            goto="update_entry_model",
             update={
                 "messages": state["messages"] + [tool_message],
                 "internship": {
@@ -101,7 +102,7 @@ def transfer_to_add_internship_agent(
     state: Annotated[SwarmResumeState, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
     config:RunnableConfig
-):
+) -> Command[Literal["internship_model"]] :
     try:
         tool_message = ToolMessage(
             content="Successfully transferred to internship_model",
@@ -132,7 +133,7 @@ def transfer_to_add_internship_agent(
         
         
         return Command(
-            goto=Send("internship_model" ,state),
+            goto="internship_model",
             update={"messages": state["messages"] + [tool_message],       
             "internship": {
             "entry": Internship().model_dump(),

@@ -9,7 +9,8 @@ from langgraph_swarm import create_swarm
 
 
 from .education_agent.agent import education_assistant
-from .internship_agent.agent_copy import internship_assistant
+from .internship_agent.agent_copy_2 import internship_assistant
+# from .internship_agent.agent_copy import internship_assistant
 # from .internship_agent.agent import internship_assistant
 from .main_agent.agent import main_assistant
 from .position_of_responsibility_agent.agent import position_of_responsibility_assistant
@@ -18,7 +19,7 @@ from .extra_curricular_agent.agent import extra_curricular_assistant
 from .scholastic_achievement_agent.agent import scholastic_achievement_assistant
 
 from .utils.common_tools import get_resume
-from utils.mapper import agent_map ,Fields
+from utils.mapper import agent_map ,Fields,resume_section_map
 
 
 from langgraph.checkpoint.memory import InMemorySaver
@@ -63,7 +64,7 @@ async def update_resume(thread_id: str, new_resume: dict):
         key = f"resume:{thread_id}"
         r.set(key, validated_resume.json())
 
-        print(f"Redis updated for {thread_id}")
+        print(f"Redis updated for {thread_id} by Auto-save")
 
     except ValidationError as ve:
         print(f"❌ Resume validation failed: {ve}")
@@ -74,44 +75,48 @@ async def update_resume(thread_id: str, new_resume: dict):
 
 
 class ask_agent_input(BaseModel):
+    # sectionId: str
+    selected_text:str
     field: Fields
-    selection: str
     question: str
+    entryIndex:int | None = None    
+    
+    # entry_index: str | None = None  
 
 
 
 
-async def set_agent(thread_id: str, field: Fields):
-    """
-    Set the active agent of the graph and ask about a particular section of the resume.
-    """
-    try:
+# async def set_agent(thread_id: str, field: Fields):
+#     """
+#     Set the active agent of the graph and ask about a particular section of the resume.
+#     """
+#     try:
 
-        agent_name = agent_map(field) or "main_assistant"
+#         agent_name = agent_map(field) or "main_assistant"
 
     
-        graph.update_state(
-            config={
-                "configurable": {
-                    "thread_id": thread_id
-                }
-            },
-            values={
-                "active_agent": agent_name,
-                    "messages": [
-                        AIMessage(content=f"Active Agent is set to {agent_name}")
-                    ]
-            }
-        )
+#         graph.update_state(
+#             config={
+#                 "configurable": {
+#                     "thread_id": thread_id
+#                 }
+#             },
+#             values={
+#                 "active_agent": agent_name,
+#                     "messages": [
+#                         AIMessage(content=f"Active Agent is set to {agent_name}")
+#                     ]
+#             }
+#         )
 
 
 
-        print(f"Ask agent executed {thread_id}")
+#         print(f"Ask agent executed {thread_id}")
 
-    except ValidationError as ve:
-        print(f"❌ Resume validation failed: {ve}")
-    except Exception as e:
-        print(f"❌ Error updating resume state: {e}")
+#     except ValidationError as ve:
+#         print(f"❌ Resume validation failed: {ve}")
+#     except Exception as e:
+#         print(f"❌ Error updating resume state: {e}")
 
 
 
@@ -128,33 +133,22 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
     
     # await save_chat_message(db, user_id, resume_id, user_input, sender_role='user')
     
-    if isinstance(user_input, dict):
-        try:
-            user_input = ask_agent_input(**user_input)
-        except ValidationError:
-            # If it fails, maybe it's just a string message in dict form
-            if "message" in user_input:
-                user_input = user_input["message"]
-            else:
-                raise
+    # if isinstance(user_input, dict):
+    #     try:
+    #         user_input = ask_agent_input(**user_input)
+    #     except ValidationError:
+    #         # If it fails, maybe it's just a string message in dict form
+    #         if "message" in user_input:
+    #             user_input = user_input["message"]
+    #         else:
+    #             raise
 
 
     # For specific agent input
-    if isinstance(user_input, ask_agent_input):
-        # print("I am running ask_agent_input")
-        await set_agent(f"{user_id}:{resume_id}", user_input.field)
-        input = (
-            f"Selected part: {user_input.selection} | "
-            f"Question: {user_input.question if user_input.question else 'I need help with the selected part.'}"
-        )
-    else:
-            
-        if(user_input is None or user_input.strip() == ""):
-            print(f"❌ Invalid input from user {user_id} for resume {resume_id}")
-            return
+   
         
-        input = user_input
-        thread_id=f"{user_id}:{resume_id}"
+    input = user_input
+    thread_id=f"{user_id}:{resume_id}"
 
         # snapshot = graph.get_state(config={"configurable": {"thread_id": thread_id}})
         
