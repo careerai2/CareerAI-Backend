@@ -15,7 +15,7 @@ alembic==1.16.5
 annotated-types==0.7.0
     # via pydantic
     # from https://pypi.org/simple
-anyio==4.10.0
+anyio==4.11.0
     # via
     #   httpx
     #   openai
@@ -120,7 +120,7 @@ filelock==3.19.1
 filetype==1.2.0
     # via langchain-google-genai
     # from https://pypi.org/simple
-flatbuffers==25.2.10
+flatbuffers==25.9.23
     # via onnxruntime
     # from https://pypi.org/simple
 frozenlist==1.7.0
@@ -142,7 +142,7 @@ google-api-core==2.25.1
     #   google-api-python-client
     #   google-generativeai
     # from https://pypi.org/simple
-google-api-python-client==2.182.0
+google-api-python-client==2.183.0
     # via google-generativeai
     # from https://pypi.org/simple
 google-auth==2.40.3
@@ -207,7 +207,7 @@ httpx==0.28.1
 httpx-sse==0.4.1
     # via langchain-community
     # from https://pypi.org/simple
-huggingface-hub==0.35.0
+huggingface-hub==0.35.1
     # via
     #   langchain-huggingface
     #   sentence-transformers
@@ -321,7 +321,7 @@ langgraph-sdk==0.2.9
 langgraph-swarm==0.0.14
     # via careerai-backend (pyproject.toml)
     # from https://pypi.org/simple
-langsmith==0.4.29
+langsmith==0.4.31
     # via
     #   langchain
     #   langchain-community
@@ -384,10 +384,10 @@ oauthlib==3.3.1
     #   kubernetes
     #   requests-oauthlib
     # from https://pypi.org/simple
-onnxruntime==1.22.1
+onnxruntime==1.23.0
     # via chromadb
     # from https://pypi.org/simple
-openai==1.108.1
+openai==1.109.1
     # via langchain-openai
     # from https://pypi.org/simple
 opentelemetry-api==1.37.0
@@ -517,7 +517,7 @@ pydantic==2.11.9
 pydantic-core==2.33.2
     # via pydantic
     # from https://pypi.org/simple
-pydantic-settings==2.10.1
+pydantic-settings==2.11.0
     # via
     #   careerai-backend (pyproject.toml)
     #   langchain-community
@@ -641,7 +641,7 @@ scipy==1.16.2
     #   scikit-learn
     #   sentence-transformers
     # from https://pypi.org/simple
-sentence-transformers==5.1.0
+sentence-transformers==5.1.1
     # via careerai-backend (pyproject.toml)
     # from https://pypi.org/simple
 setuptools==80.9.0
@@ -713,7 +713,7 @@ tqdm==4.67.1
 transformers==4.56.2
     # via sentence-transformers
     # from https://pypi.org/simple
-typer==0.19.1
+typer==0.19.2
     # via chromadb
     # from https://pypi.org/simple
 typing-extensions==4.15.0
@@ -755,7 +755,7 @@ urllib3==2.5.0
     #   kubernetes
     #   requests
     # from https://pypi.org/simple
-uvicorn==0.36.0
+uvicorn==0.37.0
     # via
     #   careerai-backend (pyproject.toml)
     #   chromadb
