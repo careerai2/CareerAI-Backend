@@ -68,3 +68,21 @@ def resume_section_map(field: Fields) -> ResumeSectionLiteral:
 #     "Extra Curricular": "extra_curricular",
 #     "Scholastic Achievement": "scholastic_achievement"
 # }
+
+
+Section_MAPPING = {
+    "internships": "Internship Document Formatting Guidelines",
+    
+}
+
+Sub_Section_MAPPING = {
+    "internships": "Schema Requirements & Formatting Rules",
+    
+}
+
+
+
+
+FIELD_MAPPING_Bullet = {
+    "internships": "Internship Work Description Bullets",
+}

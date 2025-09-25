@@ -1,6 +1,7 @@
 from langchain.tools import tool
 from pydantic import BaseModel, field_validator
 import json
+from langgraph.graph import END
 from typing import Literal,Union
 from models.resume_model import *
 from typing import Optional, Literal
@@ -775,6 +776,7 @@ async def get_entry_by_company_name(
 async def update_index_and_focus(
     index: int,
     state: Annotated[SwarmResumeState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig
 ):
     """Update the index and fetch the corresponding internship entry on which focus is needed."""
@@ -796,12 +798,19 @@ async def update_index_and_focus(
             
         update_internship_field(f"""{user_id}:{resume_id}""", "index", index)
         
+        tool_message = ToolMessage(
+            content="Successfully updated the focus to the specified internship entry.",
+            name="update_index_and_focus",
+            tool_call_id=tool_call_id,
+        )
+        
 
-        return {
-            "status": "success",
-            "entry": entry,
-        }
-
+        return Command(
+            goto="internship_model",
+            update={
+                "messages": state["messages"] + [tool_message]
+            },
+        )
     except Exception as e:
         print(f"❌ Error getting entry by company name: {e}")
         return {"status": "error", "message": str(e)}

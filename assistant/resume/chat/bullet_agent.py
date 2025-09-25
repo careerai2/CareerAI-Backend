@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Union, Literal
-from utils.mapper import agent_map ,Fields,resume_section_map
+from utils.mapper import agent_map ,Fields,resume_section_map,Section_MAPPING,FIELD_MAPPING_Bullet,Sub_Section_MAPPING
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import SystemMessage,HumanMessage
 from .llm_model import llm
@@ -11,7 +11,7 @@ import assistant.resume.chat.token_count as token_count
 
 
 # KB to be changed currently internship set should be some global or change according to 
-from assistant.resume.chat.internship_agent.functions import query_pdf_knowledge_base
+from assistant.resume.chat.internship_agent.functions import new_query_pdf_knowledge_base
 
 class ask_agent_input(BaseModel):
     # sectionId: str
@@ -53,59 +53,97 @@ async def retrieve_entry(state: agent_state, config: RunnableConfig):
     return {"entry": entry}
 
 
-
 async def query_generator(state: agent_state, config: RunnableConfig):
     highlighted_text = state.user_input.selected_text
     user_request = state.user_input.question
     entry = state.entry
+    
 
-    prompt = SystemMessage(content=dedent(f"""
+    prompt = f"""
         You are a semantic search query generator.
 
-        Context (selected entry from resume): {highlighted_text}
+        Your job: Convert resume text + user request into a concise **search query**.
+        
+        --- Rules ---
+        • Output ONLY a query-style phrase (NOT a full sentence).  
+        • Use keywords: skills, technologies, action verbs, outcomes.  
+        • Do NOT rephrase into prose or statements.  
+        • Keep it short, 5–12 words max.  
+        • Always merge context + user request meaningfully.  
+        • No filler words, quotes, or explanations.  
 
-        User Request: {user_request}
+        --- Context (selected resume text) ---
+        {highlighted_text}
 
-        Full Resume Entry: {entry}
+        --- User Request ---
+        {user_request}
 
-        Task: 
-        - Extract key action verbs, skills, technologies, or accomplishments from the context.
-        - Combine them with the user's request to create a concise, **highly relevant search query**.
-        - Keep it in 1–2 sentences.
-        - Do not add explanations, filler text, or quotes—only the final query.
+        --- Full Resume Entry ---
+        {entry}
 
-        Example:
+        --- Examples ---
         Context: "Developed RESTful APIs using Node.js and Express; integrated database with TypeORM."
-        User Request: "update it to specific role"
-        Output Query: "Node.js Express TypeORM developer API integration"
+        Request: "update it to specific role"
+        ✅ Query: Node.js Express TypeORM API integration backend developer
 
-        Now generate the query for the above context and user request.
-    """))
+        Context: "Led a team of 5 to build a ML pipeline for fraud detection."
+        Request: "make it sound more leadership-focused"
+        ✅ Query: machine learning fraud detection team leadership project management
 
-    response = llm.invoke([prompt, HumanMessage(content=user_request)], config=config)
+        Now generate ONLY the query for the above context + request.
+    """
     
+    messages = [
+    SystemMessage(content="You are a semantic search query generator."),
+    HumanMessage(content=prompt)  # your full prompt goes here
+]
+
+
+    response = llm.invoke(messages, config=config)
+
     token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
     token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
-    print("\nGenerator Query Metadata:", response.usage_metadata)
 
+    print("Query Generator Token Usage:", response.usage_metadata)
     print("Generated Query:", response.content)
-    
-    return {"query": response.content}
+
+    return {"query": response.content.strip()}
+
 
 
 
 
 
 # Node 3: Retriever (function)
-async def retriever(state:agent_state,config:RunnableConfig):
-    query = state.query
-    # Maybe extract last messages or relevant fields
-    print("QUERY",query)
-    
-    relevant_content = query_pdf_knowledge_base(query_text=query)
+async def retriever(state: agent_state, config: RunnableConfig):
+    try:
+        query = state.query
+        user_input = state.user_input
+        print("QUERY", query)
+        field = resume_section_map(user_input.field)
+        
+        Section = Section_MAPPING.get(f"{field}")
+        SubSection = Sub_Section_MAPPING.get(f"{field}")
+        print("FIELD", field)
+        print("Section =", Section)
+        print("SubSection =", SubSection)
+        print("Field =", FIELD_MAPPING_Bullet.get(f"{field}",None))
 
-    print("\n\relevant Content",relevant_content)
-    return {"retrieved_content": relevant_content}
+        relevant_content = new_query_pdf_knowledge_base(
+            query_text=str(query),
+            role=["internship"],
+            section=Section,
+            subsection=SubSection,
+            field=FIELD_MAPPING_Bullet.get(f"{field}",None),
+            n_results=5,
+            debug=False
+        )
+
+        print("\n\nRelevant Content", relevant_content)
+        return {"retrieved_content": relevant_content}
+    except Exception as e:
+        print("Error in retriever:", e)
+        return {"retrieved_content": None}
 
 
 # Node 4: Patch Generator (LLM)
@@ -114,6 +152,8 @@ async def patch_generator(state: agent_state, config: RunnableConfig):
     entry = state.entry
     user_req = state.user_input.question
 
+
+# The action verbs can be changed according to the section  of resume will be imported later for now only internship
     prompt = SystemMessage(content=dedent(f"""
     You are a **Resume Patch Generator**.
 
@@ -128,6 +168,9 @@ async def patch_generator(state: agent_state, config: RunnableConfig):
     • Keep patches minimal — only change what is necessary.  
     • If no relevant retrieved content exists, still create a patch that fulfills the user request.  
     • Never output prose, reasoning, or anything outside JSON.  
+    
+    ## Action Verbs (to use in work descriptions)
+    Developed, Implemented, Optimized, Engineered, Automated, Tested, Designed, Deployed, Refactored, Collaborated, Researched, Analyzed, Documented
 
     --- Example ---
       1. {{ "op": "replace", "path": "/company_name", "value": "Google" }},

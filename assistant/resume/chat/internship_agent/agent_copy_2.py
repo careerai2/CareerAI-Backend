@@ -1,3 +1,4 @@
+from httpx import patch
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.messages import SystemMessage, AIMessage,HumanMessage,FunctionMessage
@@ -11,9 +12,9 @@ from utils.safe_trim_msg import safe_trim_messages
 from ..utils.common_tools import extract_json_from_response
 import assistant.resume.chat.token_count as token_count
 import json 
-from .functions import apply_patches,update_internship_field,query_pdf_knowledge_base
+from .functions import apply_patches,update_internship_field,new_query_pdf_knowledge_base
 import re
-
+from .mappers import FIELD_MAPPING
 
 # ---------------------------
 # 2. LLM with Tools
@@ -106,7 +107,7 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
 )
 
 
-    messages = safe_trim_messages(state["messages"], max_tokens=325)
+    messages = safe_trim_messages(state["messages"], max_tokens=256)
     # messages = safe_trim_messages(state["messages"], max_tokens=512)
     response = llm_internship.invoke([system_prompt] + messages, config)
     
@@ -116,6 +117,20 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
     token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
+    token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+    token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+    
+    if not getattr(state["messages"][-1:], "tool_calls", None):
+
+        print("\n\n\n")
+        
+        print("\nTurn Total Input Tokens:", token_count.total_turn_Input_Tokens)
+        print("Turn Total Output Tokens:", token_count.total_turn_Output_Tokens)
+        print("\n\n")
+        
+        token_count.total_turn_Input_Tokens = 0
+        token_count.total_turn_Output_Tokens = 0
+
     print("internship_model response:", response.content)
     print("Internship Token Usage:", response.usage_metadata)
     
@@ -123,69 +138,6 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     
     return {"messages": [response]}
 
-
-
-# To be used if patches are to be generated directly by the model in response
-# def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
-#     """Main chat loop for internship assistant generating patches directly."""
-
-#     current_entries = state.get("resume_schema", {}).get("internships", [])
-#     internship_state = state.get("internship", {})
-#     tailored_current_entries = [(idx, entry.get("company_name")) for idx, entry in enumerate(current_entries)]
-
-#     if isinstance(internship_state, dict):
-#         internship_state = InternshipState.model_validate(internship_state)
-
-#     index = getattr(internship_state, "index", None)
-#     entry = current_entries[index] if index is not None and 0 <= index < len(current_entries) else None
-
-#     system_prompt = SystemMessage(
-#         content=dedent(f"""
-#         You are the **Internship Assistant** for a Resume Builder.
-#         Your job is to chat with the user and generate **JSON patches** for any internship info they provide.
-
-#         --- REQUIRED OUTPUT FORMAT ---
-#         Always respond in **JSON only** with these keys:
-#         1. "chat_text": a human-readable reply to the user.
-#         2. "patches": a JSON array in RFC6902 format containing any updates or additions.
-#         3. "intent": one of "update_entry", "add_entry", or "general_chat".
-
-#         --- RULES ---
-#         • Only include fields that the user provided in "patches".
-#         • chat_text should be a normal message that the frontend can show.
-#         • If no fields are updated, return an empty array for "patches".
-#         • Always output valid JSON. Do not include any text outside the JSON.
-
-#         --- CONTEXT ---
-#         Current entry: {entry if entry else "No entry selected."}
-#         All entries: {tailored_current_entries}
-#         """)
-#     )
-
-#     messages = safe_trim_messages(state["messages"], max_tokens=512)
-#     response = llm_internship.invoke([system_prompt] + messages, config)
-
-#     # Update token counters
-#     token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-#     token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
-
-#     print("internship_model generated:", response)
-
-#     # Use your helper to extract JSON
-#     llm_output = extract_json_from_response(response.content)
-#     if llm_output is None:
-#         print("❌ LLM did not return valid JSON, using fallback.")
-#         llm_output = {}
-    
-#     chat_text = llm_output.get("chat_text", response.content)
-#     patches = llm_output.get("patches", [])
-#     intent = llm_output.get("intent", "general_chat")
-
-#     # Store in state
-#     state["internship"]["patches"] = patches
-#     state["internship"]["last_intent"] = intent
-
-#     return {"messages": [AIMessage(content=chat_text)]}
 
 
 
@@ -229,6 +181,8 @@ def query_generator_model(state: SwarmResumeState, config: RunnableConfig):
     token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
     token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
     
+    token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+    token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
     print("Query generated:", response)
     if response.content.strip():
@@ -243,24 +197,71 @@ def query_generator_model(state: SwarmResumeState, config: RunnableConfig):
 
 
 
-
 # Knowledge Base Retriever
 def retriever_node(state: SwarmResumeState, config: RunnableConfig):
     try:
         query = state.get("internship", {}).get("generated_query", [])
-        
-        if not query or query.strip() in ("None", ""):
+        patches = state.get("internship", {}).get("patches", [])
+
+        if not query or (isinstance(query, str) and query.strip() in ("None", "")):
             print("No query generated, skipping retrieval.")
-            state["internship"]["retrieved_info"] = ""
+            state["internship"]["retrieved_info"] = []
             return {"next_node": "builder_model"}
+
+       
+
+        all_results = []
+
+        # 🔄 Loop over each query + patch
+        for i, patch in enumerate(patches):
+            section = "Internship Document Formatting Guidelines"
+            patch_field = patch.get("path", "").lstrip("/") 
+            kb_field = FIELD_MAPPING.get(patch_field) 
         
-        retrieved_info = query_pdf_knowledge_base(query_text=query, role=["internship"], n_results=5, similarity_threshold= 1, debug=False)
-        state["internship"]["retrieved_info"] = retrieved_info
-        state["internship"]["generated_query"] = ""
+            
+            if patch_field == "internship_work_description_bullets":
+                retrieved_info = new_query_pdf_knowledge_base(
+                query_text=str(query),   # now it's a string
+                role=["internship"],
+                section=section,
+                subsection="Action Verbs (to use in work descriptions)",
+                field=kb_field,
+                n_results=5,
+                debug=False
+            )
+                all_results.append(f"[Action Verbs] => {retrieved_info}")
+
+            # Extract actual query text from patch dict
+            patch_query = patch.get("value", "")  
+
+            print(f"\n🔍 Running retriever for query {i+1}: {patch_query}")
+          
+
+            retrieved_info = new_query_pdf_knowledge_base(
+                query_text=str(query),   # now it's a string
+                role=["internship"],
+                section=section,
+                subsection="Schema Requirements & Formatting Rules",
+                field=kb_field,
+                n_results=5,
+                debug=False
+            )
+
+            print(f"Retriever returned {retrieved_info} results for patch {i+1}.\n\n")
+
+            all_results.append(f"[{patch_field}] {retrieved_info}")
+
+        all_results = "\n".join(all_results)
         
-        print("Retrieved info saved:", retrieved_info)
+        print("All retrieved info:", all_results,"Type of All results:-",type(all_results))
+        # Save everything back
+        state["internship"]["retrieved_info"] = all_results
+        # state["internship"]["last_query"] = queries
+        state["internship"]["generated_query"] = ""  # clear after use
+
+        print("\n✅ Retrieved info saved:", all_results)
         print("\n\n\n\n")
-        
+
         return {"next_node": "builder_model"}
 
     except Exception as e:
@@ -287,7 +288,7 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         if not retrieved_info or retrieved_info.strip() in ("None", ""):
             print("No retrieved info available, skipping building.")
             state["messages"].append(SystemMessage(content="No retrieved info available, skipping building."))
-            return {"next_node": "internship_model"}
+            return
 
         prompt = f"""You are refining internship resume entries using JSON Patches.
 
@@ -318,7 +319,8 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
         token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
-
+        token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
         # Extract refined patches from LLM output
         refined_patches = extract_json_from_response(response.content)
 
@@ -372,62 +374,78 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
 def End_node(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for internship assistant with immediate state updates."""
 
-    save_node_response = state.get("internship", {}).get("save_node_response", None)
+    try:
+        save_node_response = state.get("internship", {}).get("save_node_response", None)
+        
+        print("End Node - save_node_response:", save_node_response)
+        
+        if save_node_response:
+            state["internship"]["save_node_response"] = None  # Clear after using
+        current_entries = state.get("resume_schema", {}).get("internships", [])
+        internship_state = state.get("internship", {})
+        
     
-    print("End Node - save_node_response:", save_node_response)
-    
-    if save_node_response:
-        state["internship"]["save_node_response"] = None  # Clear after using
-    current_entries = state.get("resume_schema", {}).get("internships", [])
-    internship_state = state.get("internship", {})
-    
- 
-    # print("Internship State in Model Call:", internship_state)
-    
-    if isinstance(internship_state, dict):
-        internship_state = InternshipState.model_validate(internship_state)
+        # print("Internship State in Model Call:", internship_state)
+        
+        if isinstance(internship_state, dict):
+            internship_state = InternshipState.model_validate(internship_state)
 
-    index = getattr(internship_state, "index", None)
-    
-    
-    
-    if index is not None and 0 <= index < len(current_entries):
-        entry = current_entries[index]
-    else:
-        entry = None
-              
-            
-    system_prompt = SystemMessage(
-        content=dedent(f"""
-            You are the Internship Assistant for a Resume Builder.
+        index = getattr(internship_state, "index", None)
+        
+        
+        
+        if index is not None and 0 <= index < len(current_entries):
+            entry = current_entries[index]
+        else:
+            entry = None
+                
+                
+        system_prompt = SystemMessage(
+            content=dedent(f"""
+                You are the Internship Assistant for a Resume Builder.
 
-            The user's internship info was just saved on the focused entry. Last node message: {save_node_response if save_node_response else ""}
-            
-            -- CURRENT ENTRY IN FOCUS --
-            {entry if entry else "No entry selected."}
+                The user's internship info was just saved on the focused entry. Last node message: {save_node_response if save_node_response else ""}
+                
+                -- CURRENT ENTRY IN FOCUS --
+                {entry if entry else "No entry selected."}
 
-            Reply briefly and warmly. Only ask for more info if needed. Occasionally ask general internship questions to keep the chat engaging.
-        """)
-    )
+                Reply briefly and warmly. Only ask for more info if needed. Occasionally ask general internship questions to keep the chat engaging.
+            """)
+        )
+        messages = safe_trim_messages(state["messages"], max_tokens=256)
+        # Include last 3 messages for context (or fewer if less than 3)
+        messages = state["messages"][-7:]
+        
+        response = llm_replier.invoke([system_prompt] + messages, config)
+        
 
-    # Include last 3 messages for context (or fewer if less than 3)
-    messages = state["messages"][-7:]
-    
-    response = llm_replier.invoke([system_prompt] + messages, config)
+        # Update token counters
+        token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+
+        token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+        
+        print("\n\n\n")
+        
+        print("End Node Response", response.content)
+        print("\nInternship Token Usage:", response.usage_metadata)
+        
+        print("\n\n\n\n")
+        
+        print("\nTurn Total Input Tokens:", token_count.total_turn_Input_Tokens)
+        print("Turn Total Output Tokens:", token_count.total_turn_Output_Tokens)
+        print("\n\n")
+        
+        token_count.total_turn_Input_Tokens = 0
+        token_count.total_turn_Output_Tokens = 0
     
 
-    # Update token counters
-    token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-    token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
-
-    print("\n\n\n")
-    
-    print("End Node Response", response.content)
-    print("\nInternship Token Usage:", response.usage_metadata)
-    
-    print("\n\n\n\n")
-    
-    return {"messages": [response]}
+        return {"messages": [response]}
+    except Exception as e:
+        
+        print("Error in End_node:", e)
+        return {END: END}
 
 
     
@@ -453,6 +471,9 @@ def internship_model_router(state: SwarmResumeState):
     #     return "query_generator_model"
     
     # 3. Otherwise continue the chat (stay in internship_model)
+    
+
+    
     return END
 
 
