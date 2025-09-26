@@ -45,9 +45,9 @@ jobs:
         script: |
           export DOCKER_USER=${{ secrets.DOCKER_USERNAME }}
           export DOCKER_PASS=${{ secrets.DOCKER_PASSWORD }}
-          sudo -u careerai bash -c "
-          cd /home/careerai/CareerAI &&
-          docker-compose down &&
-          docker-compose pull &&
-          docker-compose up -d &&
+          cd /home/careerai/CareerAI
+          docker-compose down
+          docker-compose pull
+          docker-compose up -d
           docker image prune -f
+
