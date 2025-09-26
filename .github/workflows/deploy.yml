@@ -3,7 +3,7 @@ name: Build and Push Backend Image
 on:
   push:
     branches:
-      - main-backend  # or your deploy branch
+      - backend-dev  # or your deploy branch
 
 jobs:
   build-and-push:
@@ -39,21 +39,15 @@ jobs:
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.EC2_HOST }}
-        username: ubuntu
+        username: careerai
         key: ${{ secrets.EC2_SSH_KEY }}
         envs: DOCKER_USER,DOCKER_PASS
         script: |
           export DOCKER_USER=${{ secrets.DOCKER_USERNAME }}
           export DOCKER_PASS=${{ secrets.DOCKER_PASSWORD }}
-          cd /home/ubuntu/CareerAI
-             # Stop and remove old containers
-            docker-compose down
-            
-            # Pull the latest image
-            docker-compose pull
-            
-            # Start in detached mode
-            docker-compose up -d
-            
-            # Optional: remove unused images to save space
-            docker image prune -f
+          sudo -u careerai bash -c "
+          cd /home/careerai/CareerAI &&
+          docker-compose down &&
+          docker-compose pull &&
+          docker-compose up -d &&
+          docker image prune -f
