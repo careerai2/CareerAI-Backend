@@ -261,4 +261,4 @@ def new_query_pdf_knowledge_base(
         )
     )
 
-    return f"### {header_path}\n{clean_doc}\n"
+    return f"{clean_doc}\n"

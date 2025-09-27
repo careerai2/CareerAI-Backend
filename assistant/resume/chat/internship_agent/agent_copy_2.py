@@ -70,41 +70,57 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     # print("Current Index in State:", index)
     print("Tailored Entries:-", tailored_current_entries)
     # print("Current Entry:-",entry)
+    
+    if current_entries and entry:
+        current_entry_msg = entry
+    elif current_entries and not entry:
+        current_entry_msg = f"No entry is currently focused."
+    else:
+        current_entry_msg = "No internship entries exist yet."
 
+    
     system_prompt = SystemMessage(
     content=dedent(f"""
-        You are the **Internship Assistant** for a Resume Builder.
-        Your role: Chat with the user to gather and refine internship information.
+    You are the **Internship Assistant** for a Resume Builder.
+    Your role: chat naturally, helping refine internship entries with clarity, brevity, and alignment to {tailoring_keys}.
+    Always feel like a supportive assistant, not an interviewer. KEEP RESPONSES WITHIN 125 WORDS.
 
-        --- Tool Usage ---
-        • When the user provides info for any schema field, you MUST call `apply_patches` with value that user provide.Don't Call with null or "" values.
-        • `apply_patches` accepts ONLY JSON Patch format (RFC 6902).
-        • Always generate minimal patches against the current entry which is in focus.
-        • Example patch:
-          [
-            {{ "op": "replace", "path": "/company_name", "value": "Google" }},
-            {{ "op": "add", "path": "/internship_work_description_bullets/-", "value": "Implemented ML pipeline" }}
-          ]
-        • `update_index_and_focus` => use this to change the current entry in focus useful when user wants to update any entry.
-        • `get_full_internship_entries` => use this to retrieve all internship entries in full detail,useful when user is referring to specific entries and u are unable to find them.
-        
-        
-        --- Required Schema Fields ---
-        {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets (array of strings)}}
+    --- Workflow ---
+    • Gather details conversationally (one clear question at a time).
+    • Once user provides info, IMMEDIATELY use Tool `send_patches` to transmit it.  No extra confirmation needed unless deleting or overwriting.
+    • Avoid duplicate company names.
+    • Confirm with user only if a change may DELETE existing info.
 
-        --- Current Entry in Focus (it is visible to user in frontend) ---
-        {entry if entry else "No entry selected.You can ask user to select an entry or add a new one."}
+    --- Tool Usage ---
+    • `send_patches`: Minimal JSON Patch ops (RFC 6902).
+      Example:
+      [
+        {{ "op": "replace", "path": "/company_name", "value": "Google" }},
+        {{ "op": "add", "path": "/internship_work_description_bullets/-", "value": "Implemented ML pipeline" }}
+      ]
+    • `update_index_and_focus`: Change focus to another internship entry.
+    • `get_full_internship_entries`: Fetch details for vague references to older entries.
 
-        --- Total Entries in Resume (index,company_name) ---
-        {tailored_current_entries}
-        
-        --- Guidelines ---
-        • One patch operation per user-provided fact.
-        • Use `/field_name` for normal fields, `/internship_work_description_bullets/-` to append bullets.
-        • If entry is empty, start with `add` operations.
-        • Avoid duplicate entries of company names.
+    --- Schema ---
+    {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
+
+    --- Current Entries (compact) ---
+    {tailored_current_entries if tailored_current_entries else "No entries yet."}
+
+    --- Current Entry in Focus ---
+    {current_entry_msg}
+
+    --- Guidelines ---
+    • Be concise and friendly.
+    • Keep phrasing professional and action-oriented.
+    • Apply user-provided info immediately via `send_patches`.
+    • Suggest improvements, confirm before deleting or overwriting.
+    • One patch per fact; bullets appended to `/internship_work_description_bullets/-`.
     """)
 )
+
+    
+
 
 
     messages = safe_trim_messages(state["messages"], max_tokens=256)
@@ -216,7 +232,11 @@ def retriever_node(state: SwarmResumeState, config: RunnableConfig):
         for i, patch in enumerate(patches):
             section = "Internship Document Formatting Guidelines"
             patch_field = patch.get("path", "").lstrip("/") 
+            patch_field = patch_field.split("/", 1)[0]
             kb_field = FIELD_MAPPING.get(patch_field) 
+            
+            
+            print(f"\n🔍 Running retriever for query {i+1}: on field {patch_field} mapped to KB field {kb_field}")
         
             
             if patch_field == "internship_work_description_bullets":
@@ -235,7 +255,8 @@ def retriever_node(state: SwarmResumeState, config: RunnableConfig):
             patch_query = patch.get("value", "")  
 
             print(f"\n🔍 Running retriever for query {i+1}: {patch_query}")
-          
+
+            print
 
             retrieved_info = new_query_pdf_knowledge_base(
                 query_text=str(query),   # now it's a string
@@ -290,7 +311,7 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
             state["messages"].append(SystemMessage(content="No retrieved info available, skipping building."))
             return
 
-        prompt = f"""You are refining internship resume entries using JSON Patches.
+        prompt = dedent(f"""You are refining internship resume entries using JSON Patches.
 
             ***INSTRUCTIONS:***
             • Respond in **valid JSON array only** (list of patches).
@@ -311,7 +332,10 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
 
             --- Retrieved Info ---
             {retrieved_info}
-            """
+            """)
+            
+        # messages = safe_trim_messages(state["messages"], max_tokens=256)
+        # last_human_msg = next((msg for msg in reversed(messages) if isinstance(msg, HumanMessage)), None)
 
 
         response = llm_builder.invoke(prompt, config)
@@ -378,9 +402,7 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         save_node_response = state.get("internship", {}).get("save_node_response", None)
         
         print("End Node - save_node_response:", save_node_response)
-        
-        if save_node_response:
-            state["internship"]["save_node_response"] = None  # Clear after using
+
         current_entries = state.get("resume_schema", {}).get("internships", [])
         internship_state = state.get("internship", {})
         
@@ -410,13 +432,19 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
                 {entry if entry else "No entry selected."}
 
                 Reply briefly and warmly. Only ask for more info if needed. Occasionally ask general internship questions to keep the chat engaging.
+                
+                YOU MUST REPLY A FRIENDLY MSG IN A CONTINUATION OF THE CHAT AND FLOW. 
             """)
         )
-        messages = safe_trim_messages(state["messages"], max_tokens=256)
-        # Include last 3 messages for context (or fewer if less than 3)
+
+        # # Include last 3 messages for context (or fewer if less than 3)
         messages = state["messages"][-7:]
         
         response = llm_replier.invoke([system_prompt] + messages, config)
+        
+                
+        if save_node_response:
+            state["internship"]["save_node_response"] = None  # Clear after using
         
 
         # Update token counters

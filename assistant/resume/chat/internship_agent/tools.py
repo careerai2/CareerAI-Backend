@@ -62,7 +62,7 @@ def get_compact_internship_entries(config: RunnableConfig):
 
 
 @tool
-def get_full_internship_entries(config: RunnableConfig):
+def get_full_internship_entries(config: RunnableConfig, tool_call_id: Annotated[str, InjectedToolCallId],):
     """
     Get all internship entries in a full format.
     Returns: list of dicts with all fields.
@@ -77,11 +77,25 @@ def get_full_internship_entries(config: RunnableConfig):
 
         # Filter out None or empty entries
         entries = [e for e in entries if e and isinstance(e, dict)]
+        
 
-        return entries
+        # return entries
+        tool_message = ToolMessage(
+            content="Successfully transferred to internship_model",
+            name="handoff_to_internship_model",
+            tool_call_id=tool_call_id,
+        )
+    
+        return Command(
+                goto="internship_model",
+                update={
+                    "messages": [tool_message],
+                }
+            )
 
     except Exception as e:
         print(f"Error in get_full_internship_entries: {e}")
+        
         return {"error": "Failed to retrieve full internship entries","message":str(e)}
 
 
@@ -701,7 +715,7 @@ async def send_patches(
         return Command(
             goto="query_generator_model",
             update={
-                "messages": state["messages"] + [tool_message],
+                "messages": [tool_message],
                 "internship": {
                     "retrived_info": "",
                     "patches": patches,
@@ -712,7 +726,12 @@ async def send_patches(
 
     except Exception as e:
         print(f"❌ Error applying internship entry patches: {e}")
-        return {"status": "error", "message": str(e)}
+        fallback_msg = ToolMessage(
+            content=f"Error applying patches internally: {e}",
+            name="error_message",
+            tool_call_id=tool_call_id,
+        )
+        return {"messages": [fallback_msg]}
 
 
 
