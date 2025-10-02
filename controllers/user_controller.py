@@ -25,7 +25,7 @@ import random
 from utils.send_otp import send_otp_email
 from assistant.resume.parse_userAudio_input import parse_user_audio_input
 from validation.resume_validation import ResumeModel
-
+from redis_config import redis_client as r 
 
 
 def generate_otp() -> str:
@@ -561,3 +561,59 @@ async def get_user_preferences(user_id: int, db: AsyncIOMotorDatabase):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
         
+
+# put the resume data in mongodb and set its status to completed
+async def export_resume_data(resume_id: str,user_id: str, db: AsyncIOMotorDatabase):
+    try:
+        if not ObjectId.is_valid(resume_id):
+            return JSONResponse(
+                content={"message": "Invalid resume ID"},
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        key = f"resume:{user_id}:{resume_id}"
+        cached_resume = r.get(key)
+        
+        # print(cached_resume)
+        if(cached_resume is None):
+            return JSONResponse(
+                content={"message": "Resume data not found in cache. Please regenerate the resume."},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        cached_resume_dict = json.loads(cached_resume)
+ 
+        # Filter out only meaningful fields (skip None, empty lists, empty strings)
+        update_fields = {k: v for k, v in cached_resume_dict.items() if v not in (None, [], "")}
+
+
+        # Always update status and timestamp
+        update_fields["status"] = "completed"
+        update_fields["updated_at"] = datetime.now().isoformat(timespec="milliseconds") + "Z"
+
+        resume_collection = db.get_collection("resumes")
+        result = await resume_collection.update_one(
+            {"_id": ObjectId(resume_id), "user_id": ObjectId(user_id)},
+            {"$set": update_fields}
+        )
+        
+        
+        print(type(user_id),type(resume_id))
+        print("Matched:", result.matched_count, "Modified:", result.modified_count)
+
+        if result.matched_count == 0:
+            return JSONResponse(
+                content={"message": "Resume not found or unauthorized"},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        return JSONResponse(
+            content={"message": "Resume data saved and status updated to completed"},
+            status_code=status.HTTP_200_OK
+        )
+
+    except Exception as e:
+        print(f"Error exporting resume data: {e}")
+        return JSONResponse(
+            content={"message": f"An error occurred while exporting resume data: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

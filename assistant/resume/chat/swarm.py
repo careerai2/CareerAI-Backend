@@ -10,11 +10,10 @@ from langgraph_swarm import create_swarm
 
 from .education_agent.agent import education_assistant
 from .internship_agent.agent_copy_2 import internship_assistant
-# from .internship_agent.agent_copy import internship_assistant
-# from .internship_agent.agent import internship_assistant
+from .workex_agent.agent_copy_2_copy import workex_assistant
 from .main_agent.agent import main_assistant
 from .position_of_responsibility_agent.agent import position_of_responsibility_assistant
-from .workex_agent.agent import workex_assistant
+# from .workex_agent.agent import workex_assistant
 from .extra_curricular_agent.agent import extra_curricular_assistant
 from .scholastic_achievement_agent.agent import scholastic_achievement_assistant
 
@@ -163,7 +162,8 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
                 {"role": "user", "content": f"{input}"}
             ],
             "resume_schema": resume,
-            "internship": internship_state
+            "internship": internship_state,
+            "workex": get_graph_state(user_id, resume_id, "workex"),
         },
         config={
         "configurable": {

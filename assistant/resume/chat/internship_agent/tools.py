@@ -701,7 +701,7 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
         
-        index = getattr(state["internship"], "entry", None)
+        index = getattr(state["internship"], "index", None)
         
         
         tool_message = ToolMessage(
@@ -835,13 +835,16 @@ async def update_index_and_focus(
         return {"status": "error", "message": str(e)}
 
 
+
+
 tools = [
     # internship_Tool, 
     send_patches,
     update_index_and_focus,
     # transfer_to_enhancer_pipeline,
     # transfer_to_update_internship_agent,
-        #  reorder_bullet_points_tool,
+         reorder_bullet_points_tool,
+         reorder_Tool,
         # internship_bullet_tool,
         # human_assistance,
         # use_knowledge_base,

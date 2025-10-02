@@ -1,0 +1,211 @@
+from langchain.tools import tool
+from pydantic import BaseModel, field_validator,ValidationError
+import json
+from typing import Literal,Union
+from models.resume_model import *
+from typing import Optional, Literal
+from pydantic import BaseModel, field_validator
+import json
+from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
+from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
+from ..handoff_tools import *
+from redis_config import redis_client as r , chroma_client, embeddings
+from assistant.resume.chat.utils.common_tools import send_patch_to_frontend
+from langgraph.prebuilt import InjectedState
+from models.resume_model import Internship
+# from .state import InternshipState
+from ..llm_model import SwarmResumeState,InternshipState,WorkexState
+
+import jsonpatch
+
+
+
+# to update any field in internship state like index,retrieved_info of internship agent
+def update_workex_field(thread_id: str, field: Literal["index", "retrieved_info"], value):
+    """
+    Update any field in the internship state for a given thread_id in Redis (plain JSON string storage).
+    
+    Args:
+        thread_id (str): The unique thread/session ID.
+        field (str): The field name to update (e.g., 'index', 'retrieved_info').
+        value: The new value to set.
+    """
+    key = f"state:{thread_id}:workex"
+
+    # Fetch current JSON
+    current_resume_json = r.get(key)
+    if current_resume_json:
+        current_resume = json.loads(current_resume_json)
+    else:
+        # Default structure if key doesn't exist
+        current_resume = {"retrieved_info": "None", "index": None, "pathches": []}
+
+    # Update the desired field
+    current_resume[str(field)] = value
+
+    # Save it back
+    r.set(key, json.dumps(current_resume))
+    print(f"Updated field '{field}' to '{value}' for thread {thread_id}.")
+    
+    
+
+
+
+# CAN BE MORE OPTIMIZED WILL DO LATER
+async def apply_patches(thread_id: str, patches: list[dict]):
+    """
+    Adds or updates an internship in the resume and syncs with Redis + frontend.
+    """
+    try:
+        internship_state_raw = r.get(f"state:{thread_id}:workex")
+        if internship_state_raw:
+            internship_state = json.loads(internship_state_raw)
+            print("Workex State from Redis:", internship_state)
+            index = int(internship_state.get("index")) if internship_state.get("index") is not None else None
+        else:
+            internship_state = {}
+            index = None
+
+
+        if not patches or len(patches) == 0:
+            print("No patches to apply, skipping save.")
+            return {"status": "success", "message": "No patches to apply."}
+
+        # Load resume from Redis
+        current_resume_raw = r.get(f"resume:{thread_id}")
+        if not current_resume_raw:
+            raise ValueError("Resume not found for the given thread_id.")
+        current_resume = json.loads(current_resume_raw)
+
+        # Get internships list
+        current_workex = current_resume.get("work_experiences", [])
+
+        current_company_names = [internship.get("company_name", "").lower().strip() for internship in current_workex if internship.get("company_name")]
+
+        print("Current Company Names:",current_company_names)
+        
+        is_company_name_patch = any(
+    patch.get("path") == "/company_name" and patch.get("op") in ("add","replace") and patch.get("value", "").lower().strip() not in current_company_names
+    for patch in patches)
+        
+        if is_company_name_patch:
+            index = None  # Force adding a new internship
+
+        # Ensure index is integer if provided
+        if index is not None:
+            try:
+                index = int(index)
+            except ValueError:
+                print(f"Invalid index provided: {index}, will create new entry.")
+                index = None
+
+        # Update existing or add new internship
+        if index is not None and 0 <= index < len(current_workex):
+            print(f"Updating internship at index {index}")
+            jsonpatch.apply_patch(current_workex[index], patches, in_place=True)
+        else:
+            print(f"Adding new workex (index={index})")
+            new_internship = WorkexState().model_dump()
+            jsonpatch.apply_patch(new_internship, patches, in_place=True)
+            current_workex.append(new_internship)
+            update_workex_field(thread_id, "index", len(current_workex) - 1)
+            index = len(current_workex) - 1
+
+        # Save back to Redis
+        current_resume["work_experiences"] = current_workex
+        r.set(f"resume:{thread_id}", json.dumps(current_resume))
+
+        # Notify frontend
+        user_id = thread_id.split(":")[0]
+        print(f"User ID: {user_id}, Applied patches: {patches}")
+        await send_patch_to_frontend(user_id, current_resume)
+
+        return {"status": "success", "message": "Internship updated successfully.","index": index}
+
+    except ValidationError as ve:
+        return {"status": "error", "message": f"Validation error: {ve.errors()}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+# new version with more filters
+def new_query_pdf_knowledge_base(
+    query_text,
+    role=["workex"],
+    section=None,
+    subsection=None,
+    field=None,
+    n_results=10,
+    debug=True,
+):
+    """
+    Query stored PDF chunks in Chroma and return the closest match.
+    Supports filtering by role, Section, Subsection, and Field metadata.
+    """
+
+    # 1️⃣ Embed query (if you added documents directly, use query_texts instead)
+    query_embedding = embeddings.embed_query(query_text)
+
+    # 2️⃣ Build metadata filter
+    filters = []
+    if role:
+        filters.append({"role": {"$in": role}})
+    if section:
+        filters.append({"Section": {"$eq": section}})
+    if subsection:
+        filters.append({"Subsection": {"$eq": subsection}})
+    if field:
+        filters.append({"Field": {"$eq": field}})  # only if you used "Field" in splitter
+
+    if not filters:
+        where_filter = {}
+    elif len(filters) == 1:
+        where_filter = filters[0]
+    else:
+        where_filter = {"$and": filters}
+
+    if debug:
+        print(f"🔹 Query: {query_text}")
+        print(f"🔹 Filter: {where_filter}")
+
+    collection = chroma_client.get_or_create_collection(name="workex_guide_doc")
+    
+    # 3️⃣ Query Chroma
+    results = collection.query(
+        query_embeddings=[query_embedding],  # OR query_texts=[query_text]
+        n_results=n_results,
+        where=where_filter,
+        include=["documents", "distances", "metadatas"],
+    )
+
+    if not results["documents"] or not results["documents"][0]:
+        print("❌ No matching documents found.")
+        return ""
+
+    # 4️⃣ Select best match
+    best_idx = min(
+        range(len(results["distances"][0])),
+        key=lambda i: results["distances"][0][i],
+    )
+    best_doc = results["documents"][0][best_idx]
+    best_meta = results["metadatas"][0][best_idx]
+    best_dist = results["distances"][0][best_idx]
+
+    # Clean text
+    clean_doc = " ".join(best_doc.split())
+    header_path = " > ".join(
+        filter(
+            None,
+            [
+                best_meta.get("Section", ""),
+                best_meta.get("Subsection", ""),
+                best_meta.get("Field", ""),
+            ],
+        )
+    )
+
+    return f"{clean_doc}\n"

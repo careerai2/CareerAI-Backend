@@ -108,9 +108,12 @@ async def set_user_preferences(
     )
     
     
-# @router.put("/save-resume")
-# async def set_user_preferences(request: Request, resumeData: ResumeLLMSchema, session: AsyncSession = Depends(get_database)):
-#     user_id = request.state.user["_id"]
+@router.put("/export-resume/{resume_id}")
+async def set_user_preferences( resume_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_database)):
+    user_id = request.state.user["_id"]
+    return await export_resume_data(resume_id, user_id, session)
     
 
 
