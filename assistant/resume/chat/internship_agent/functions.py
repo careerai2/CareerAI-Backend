@@ -52,84 +52,188 @@ def update_internship_field(thread_id: str, field: Literal["index", "retrieved_i
 
 
 
-# CAN BE MORE OPTIMIZED WILL DO LATER
+# # CAN BE MORE OPTIMIZED WILL DO LATER
+# async def apply_patches(thread_id: str, patches: list[dict]):
+#     """
+#     Adds or updates an internship in the resume and syncs with Redis + frontend.
+#     """
+#     try:
+#         internship_state_raw = r.get(f"state:{thread_id}:internship")
+#         if internship_state_raw:
+#             internship_state = json.loads(internship_state_raw)
+#             print("Internship State from Redis:", internship_state)
+#             index = int(internship_state.get("index")) if internship_state.get("index") is not None else None
+#         else:
+#             internship_state = {}
+#             index = None
+
+
+#         if not patches or len(patches) == 0:
+#             print("No patches to apply, skipping save.")
+#             return {"status": "success", "message": "No patches to apply."}
+
+#         # Load resume from Redis
+#         current_resume_raw = r.get(f"resume:{thread_id}")
+#         if not current_resume_raw:
+#             raise ValueError("Resume not found for the given thread_id.")
+#         current_resume = json.loads(current_resume_raw)
+
+#         # Get internships list
+#         current_internships = current_resume.get("internships", [])
+
+#         current_company_names = [internship.get("company_name", "").lower().strip() for internship in current_internships if internship.get("company_name")]
+
+#         print("Current Company Names:",current_company_names)
+        
+#         is_company_name_patch = any(
+#     patch.get("path") == "/company_name" and patch.get("op") in ("add","replace") and patch.get("value", "").lower().strip() not in current_company_names
+#     for patch in patches
+# )
+#         if is_company_name_patch:
+#             index = None  # Force adding a new internship
+
+#         # Ensure index is integer if provided
+#         if index is not None:
+#             try:
+#                 index = int(index)
+#             except ValueError:
+#                 print(f"Invalid index provided: {index}, will create new entry.")
+#                 index = None
+
+#         # Update existing or add new internship
+#         if index is not None and 0 <= index < len(current_internships):
+#             print(f"Updating internship at index {index}")
+#             jsonpatch.apply_patch(current_internships[index], patches, in_place=True)
+#         else:
+#             print(f"Adding new internship (index={index})")
+#             new_internship = Internship().model_dump()
+#             jsonpatch.apply_patch(new_internship, patches, in_place=True)
+#             current_internships.append(new_internship)
+#             update_internship_field(thread_id, "index", len(current_internships) - 1)
+#             index = len(current_internships) - 1
+
+#         # Save back to Redis
+#         current_resume["internships"] = current_internships
+#         r.set(f"resume:{thread_id}", json.dumps(current_resume))
+
+#         # Notify frontend
+#         user_id = thread_id.split(":")[0]
+#         print(f"User ID: {user_id}, Applied patches: {patches}")
+#         await send_patch_to_frontend(user_id, current_resume)
+
+#         return {"status": "success", "message": "Internship updated successfully.","index": index}
+
+#     except ValidationError as ve:
+#         return {"status": "error", "message": f"Validation error: {ve.errors()}"}
+#     except Exception as e:
+#         return {"status": "error", "message": str(e)}
+
+
+
+
 async def apply_patches(thread_id: str, patches: list[dict]):
     """
     Adds or updates an internship in the resume and syncs with Redis + frontend.
+    Robust version with edge case handling.
     """
     try:
+        # Load internship state from Redis
         internship_state_raw = r.get(f"state:{thread_id}:internship")
+        index = None
         if internship_state_raw:
-            internship_state = json.loads(internship_state_raw)
-            print("Internship State from Redis:", internship_state)
-            index = int(internship_state.get("index")) if internship_state.get("index") is not None else None
+            try:
+                internship_state = json.loads(internship_state_raw)
+                index = internship_state.get("index")
+                if index is not None:
+                    index = int(index)
+            except json.JSONDecodeError:
+                print("Corrupted internship state in Redis. Resetting.")
+                internship_state = {}
+                index = None
         else:
             internship_state = {}
-            index = None
 
-
-        if not patches or len(patches) == 0:
-            print("No patches to apply, skipping save.")
+        # Early exit if no patches
+        if not patches:
             return {"status": "success", "message": "No patches to apply."}
 
         # Load resume from Redis
         current_resume_raw = r.get(f"resume:{thread_id}")
         if not current_resume_raw:
-            raise ValueError("Resume not found for the given thread_id.")
-        current_resume = json.loads(current_resume_raw)
+            return {"status": "error", "message": "Resume not found."}
 
-        # Get internships list
+        try:
+            current_resume = json.loads(current_resume_raw)
+        except json.JSONDecodeError:
+            return {"status": "error", "message": "Corrupted resume data in Redis."}
+
         current_internships = current_resume.get("internships", [])
+        current_company_names = [
+            internship.get("company_name", "").lower().strip()
+            for internship in current_internships if internship.get("company_name")
+        ]
 
-        current_company_names = [internship.get("company_name", "").lower().strip() for internship in current_internships if internship.get("company_name")]
-
-        print("Current Company Names:",current_company_names)
-        
-        is_company_name_patch = any(
-    patch.get("path") == "/company_name" and patch.get("op") in ("add","replace") and patch.get("value", "").lower().strip() not in current_company_names
-    for patch in patches
-)
-        if is_company_name_patch:
+        # Check if any patch adds/replaces a new company name
+        is_new_company_patch = any(
+            patch.get("path") == "/company_name"
+            and patch.get("op") in ("add", "replace")
+            and patch.get("value", "").lower().strip() not in current_company_names
+            for patch in patches
+        )
+        if is_new_company_patch:
             index = None  # Force adding a new internship
 
-        # Ensure index is integer if provided
-        if index is not None:
-            try:
-                index = int(index)
-            except ValueError:
-                print(f"Invalid index provided: {index}, will create new entry.")
-                index = None
-
-        # Update existing or add new internship
+        # Apply patches
         if index is not None and 0 <= index < len(current_internships):
-            print(f"Updating internship at index {index}")
-            jsonpatch.apply_patch(current_internships[index], patches, in_place=True)
+            try:
+                jsonpatch.apply_patch(current_internships[index], patches, in_place=True)
+                print(f"Updated internship at index {index}")
+            except jsonpatch.JsonPatchException as e:
+                return {"status": "error", "message": f"Failed to apply patch: {e}"}
         else:
-            print(f"Adding new internship (index={index})")
+            # Add new internship
             new_internship = Internship().model_dump()
-            jsonpatch.apply_patch(new_internship, patches, in_place=True)
+            try:
+                jsonpatch.apply_patch(new_internship, patches, in_place=True)
+            except jsonpatch.JsonPatchException as e:
+                return {"status": "error", "message": f"Failed to apply patch to new entry: {e}"}
             current_internships.append(new_internship)
-            update_internship_field(thread_id, "index", len(current_internships) - 1)
             index = len(current_internships) - 1
+            # Save new index to internship state
+            update_internship_field(thread_id, "index", index)
+            print(f"Added new internship at index {index}")
 
         # Save back to Redis
         current_resume["internships"] = current_internships
-        r.set(f"resume:{thread_id}", json.dumps(current_resume))
+        try:
+            r.set(f"resume:{thread_id}", json.dumps(current_resume))
+        except TypeError as e:
+            return {"status": "error", "message": f"Failed to serialize resume: {e}"}
 
-        # Notify frontend
-        user_id = thread_id.split(":")[0]
-        print(f"User ID: {user_id}, Applied patches: {patches}")
+        # Notify frontend safely
+        try:
+            user_id = thread_id.split(":", 1)[0]
+        except IndexError:
+            user_id = thread_id
         await send_patch_to_frontend(user_id, current_resume)
+        
+        # Maintain undo stack
+        # undo_stack_key = f"undo_stack:{thread_id}"
+        # r.lpush(undo_stack_key, json.dumps(patches))
 
-        return {"status": "success", "message": "Internship updated successfully.","index": index}
+        # # Clear redo stack on new action
+        # redo_stack_key = f"redo_stack:{thread_id}"
+        # r.delete(redo_stack_key)
+        
+        
+        print(f"User ID: {user_id}, patches applied: {patches}")
+
+        return {"status": "success", "message": "Internship updated successfully.", "index": index}
 
     except ValidationError as ve:
         return {"status": "error", "message": f"Validation error: {ve.errors()}"}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-
+        return {"status": "error", "message": f"Unexpected error: {str(e)}"}
 
 
 

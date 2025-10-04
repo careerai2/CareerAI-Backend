@@ -13,10 +13,9 @@ def safe_trim_messages(messages, max_tokens=1024):
         messages,
         strategy="last",
         token_counter=count_tokens_approximately,
-        include_system=True,
         max_tokens=max_tokens,
         start_on="human",
-        end_on=("human"),
+        end_on=("human","ai"),
     )
 
     # If trim removed all human messages, keep the last one

@@ -388,7 +388,7 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         )
 
         # # Include last 3 messages for context (or fewer if less than 3)
-        messages = state["messages"][-7:]
+        messages = state["messages"]
         
         # print("\n\n\nMessages in End Node:", messages)
         

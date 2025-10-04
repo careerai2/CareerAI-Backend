@@ -687,7 +687,7 @@ async def send_patches(
     tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig
 ):
-    """Apply JSON patches to the internship sub-state within SwarmResumeState."""
+    """Apply JSON Patch ops (RFC 6902) to the internship actual internship entry in the resume."""
     try:
         
         print("PATCH:", patches)

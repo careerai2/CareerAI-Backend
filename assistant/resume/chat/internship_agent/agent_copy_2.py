@@ -25,21 +25,8 @@ llm_internship = llm.bind_tools([*tools, *transfer_tools])
 # llm_internship = llm  # tool can be added if needed
 llm_builder = llm  # tool can be added if needed
 llm_retriever = llm # tool can be added if needed
-llm_replier = llm # tool can be added if needed
 
-
-
-# ---------------------------
-# 3. State
-# ---------------------------
-
-# in file llm_model.py
-
-
-# ---------------------------
-# 4. Node Functions
-# ---------------------------
-
+default_msg = AIMessage(content="Sorry, I couldn't process that. Could you please retry?")
 
 # main model
 def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
@@ -81,26 +68,29 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     
     system_prompt = SystemMessage(
     content=dedent(f"""
-    You are the **Internship Assistant** for a Resume Builder.
-    Your role: chat naturally, helping refine internship entries with clarity, brevity, and alignment to {tailoring_keys}.
-    Always feel like a supportive assistant, not an interviewer. KEEP RESPONSES WITHIN 125 WORDS.
+    You are a **Human like Internship Assistant** for a Resume Builder.
+    Your role: chat naturally, guiding users to refine internship entries with clarity, brevity, and alignment to {tailoring_keys}.
+    Always be supportive, not interrogative. KEEP RESPONSES UNDER 125 WORDS.
 
     --- Workflow ---
-    • Gather details conversationally (one clear question at a time).
-    • Once user provides info, IMMEDIATELY use Tool `send_patches` to transmit it.  No extra confirmation needed unless deleting or overwriting.
+    • Gather details conversationally (one clear question at a time). 
     • Avoid duplicate company names.
     • Confirm with user only if a change may DELETE existing info.
+    • Once user provides info, IMMEDIATELY use Tool `send_patches` to transmit it. No extra confirmation needed unless deleting or overwriting.
+    • For each internship, aim to get 3 pieces of information: what the user did, the outcome, and its impact.
+    • DO NOT ask about challenges, learnings, or feelings.
+    • Suggest improvements to existing info (better phrasing, more impact, clarity).
+    • Keep each bullet between 90–150 characters.
 
     --- Tool Usage ---
-    • `send_patches`: Minimal JSON Patch ops (RFC 6902).
-      Example:
+    • `send_patches`: Minimal JSON Patch ops (RFC 6902). Example:
       [
         {{ "op": "replace", "path": "/company_name", "value": "Google" }},
         {{ "op": "add", "path": "/internship_work_description_bullets/-", "value": "Implemented ML pipeline" }}
       ]
-    • `update_index_and_focus`: Change focus to another internship entry.
+    • `update_index_and_focus`: Switch focus to another internship entry.
     • `get_full_internship_entries`: Fetch details for vague references to older entries.
-    • Also transfer toold for each section are provided call them whenever u feel user want to move to other section.
+    • Additional tools for each section are available—call them when the user wants to move sections.
 
     --- Schema ---
     {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
@@ -112,48 +102,61 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     {current_entry_msg}
 
     --- Guidelines ---
-    • Be concise and friendly.
-    • Keep phrasing professional and action-oriented.
-    • Apply user-provided info immediately via `send_patches`.
-    • Suggest improvements, confirm before deleting or overwriting.
-    • One patch per fact; bullets appended to `/internship_work_description_bullets/-`.
+    • Be concise, friendly, and professional.
+    • Use action-oriented phrasing.
+    • Apply info immediately via `send_patches`.
+    • Suggest improvements, confirm before deleting/overwriting.
+    • Append one bullet per patch to `/internship_work_description_bullets/-`.
     """)
 )
 
-    
 
 
-
-    messages = safe_trim_messages(state["messages"], max_tokens=256)
-    # messages = safe_trim_messages(state["messages"], max_tokens=512)
-    response = llm_internship.invoke([system_prompt] + messages, config)
-    
-    # print("Internship Response:", response.content)
-
-    # Update token counters
-    token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-    token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
-
-    token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-    token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
-    
-    if not getattr(state["messages"][-1:], "tool_calls", None):
-
-        print("\n\n\n")
+    try:
+ 
+        messages = safe_trim_messages(state["messages"], max_tokens=256)
+        # messages = safe_trim_messages(state["messages"], max_tokens=512)
+        response = llm_internship.invoke([system_prompt] + messages, config)
         
-        print("\nTurn Total Input Tokens:", token_count.total_turn_Input_Tokens)
-        print("Turn Total Output Tokens:", token_count.total_turn_Output_Tokens)
-        print("\n\n")
-        
-        token_count.total_turn_Input_Tokens = 0
-        token_count.total_turn_Output_Tokens = 0
+        # print("Internship Response:", response.content)
 
-    print("internship_model response:", response.content)
-    print("Internship Token Usage:", response.usage_metadata)
-    
-    print("\n\n\n\n")
-    
-    return {"messages": [response]}
+        # Update token counters
+        token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+
+        
+
+        
+        if not getattr(state["messages"][-1:], "tool_calls", None):
+
+            print("\n\n\n")
+            
+       
+        
+            
+            token_count.total_turn_Input_Tokens = 0
+            token_count.total_turn_Output_Tokens = 0
+
+        print("internship_model response:", response.content)
+        print("Internship Token Usage:", response.usage_metadata)
+        
+        print("\n\n\n\n")
+        
+        return {"messages": [response]}
+    except Exception as e:
+        print("Error in internship_model:", e)
+        return {"messages": [AIMessage(content="Sorry! can you repeat")],"next_node": END}
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -190,27 +193,45 @@ def query_generator_model(state: SwarmResumeState, config: RunnableConfig):
             {tailoring_keys if tailoring_keys else "None"}
             """
 
+    try:
+
+        # Call the retriever LLM
+        response = llm_retriever.invoke(prompt, config)
+        
+        token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+        
+        
 
 
-    # Call the retriever LLM
-    response = llm_retriever.invoke(prompt, config)
-    
-    token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-    token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
-    
-    token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-    token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+        print("Query generated:", response)
+        if response.content.strip():
+            state["internship"]["generated_query"] = str(response.content)
+        else:
+            state["internship"]["generated_query"] = ""
+            print("Retriever returned empty info")
 
-    print("Query generated:", response)
-    if response.content.strip():
-        state["internship"]["generated_query"] = str(response.content)
-    else:
-        state["internship"]["generated_query"] = ""
-        print("Retriever returned empty info")
+        print("Query generator Token Usage:", response.usage_metadata)
+        print("\n\n\n\n")
+        # return {"next_node": "builder_model"}
+        return {"next_node": END}
+    except Exception as e:
+        print("Error in query generator:", e)
+        
+        return {"messages":AIMessage(content="Sorry,Can't process your request now"),"next_node": END}
 
-    print("Query generator Token Usage:", response.usage_metadata)
-    print("\n\n\n\n")
-    return {"next_node": "builder_model"}
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -292,6 +313,22 @@ def retriever_node(state: SwarmResumeState, config: RunnableConfig):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Builder Model
 def builder_model(state: SwarmResumeState, config: RunnableConfig):
     """Refine internship patches using retrieved info."""
@@ -312,28 +349,29 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
             state["messages"].append(SystemMessage(content="No retrieved info available, skipping building."))
             return
 
-        prompt = dedent(f"""You are refining internship resume entries using JSON Patches.
+        prompt = dedent(f"""You are reviewing internship resume entries using JSON Patches.
 
-            ***INSTRUCTIONS:***
-            • Respond in **valid JSON array only** (list of patches).
-            • Input is the current entry + current patches + retrieved info.
-            • Your goal: refine/improve the **values** of the patches using the retrieved info.
-            • Keep good fields unchanged (don’t patch unnecessarily).
-            • **Do NOT change the 'op' or 'path' of any patch.** Only the 'value' can be updated.
-            • Use JSON Patch format strictly:
-            - op: must remain exactly as in the input patch ("add", "replace", "remove")
-            - path: must remain exactly as in the input patch
-            - value: update only if refinement is necessary
+        ***INSTRUCTIONS:***
+        • Respond in **valid JSON array only** (list of patches).
+        • Input is the current entry + current patches + retrieved info.
+        • **Do NOT change any existing patch values, ops, or paths.** The patches must remain exactly as provided.
+        • Use the retrieved info only as **guidance and best practice** for evaluating the patches.
+        • Do NOT add, remove, or replace patches—your task is only to verify and suggest improvements conceptually (no changes to JSON output).
+        • Your response must strictly maintain the original JSON Patch structure provided.
 
-            --- Current Entry on which the new patches to be applied ---
-            {json.dumps(entry, indent=2)}
+        --- Current Entry on which the patches are applied ---
+        {entry}
 
-            --- Current Patches ---
-            {json.dumps(patches, indent=2)}
+        --- Current Patches ---
+        {patches}
 
-            --- Retrieved Info ---
-            {retrieved_info}
-            """)
+        --- Retrieved Info (use only as guidance for best practices) ---
+        {retrieved_info}
+        """)
+
+            
+
+
             
         # messages = safe_trim_messages(state["messages"], max_tokens=256)
         # last_human_msg = next((msg for msg in reversed(messages) if isinstance(msg, HumanMessage)), None)
@@ -344,8 +382,8 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
         token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
-        token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-        token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+        
+
         # Extract refined patches from LLM output
         refined_patches = extract_json_from_response(response.content)
 
@@ -355,13 +393,25 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         
         print("\n\n\n\n")
         # Replace patches in state
-        state["internship"]["patches"] = refined_patches
+        if not isinstance(refined_patches, list):
+            state["internship"]["patches"] = [refined_patches]
+        else:    
+            state["internship"]["patches"] = refined_patches
 
         return {"next_node": "save_entry_state"}
 
     except Exception as e:
         print("Error in builder_model:", e)
-        return {END: END}
+        return {"messages":default_msg,"next_node": END}
+
+
+
+
+
+
+
+
+
 
 
 
@@ -392,7 +442,14 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
             print("\n\n\n\n")
     except Exception as e:
         print("Error in save_entry_state:", e)
-        return None
+        return {"messages":AIMessage(content="Sorry,Can't process your request now"),"next_node": END}
+    
+    
+    
+    
+    
+    
+    
     
 
 # End Node (Runs after save_entry_node)
@@ -425,23 +482,30 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
                 
         system_prompt = SystemMessage(
             content=dedent(f"""
-                You are the Internship Assistant for a Resume Builder.
+                You are a human-like Internship Assistant for a Resume Builder.
 
-                The user's internship info was just saved on the focused entry. Last node message: {save_node_response if save_node_response else ""}
-                
+                Focus on **chat engagement**, not on re-outputting or editing entries. 
+                The user already knows what was updated in their internship section.
+
+                Last node message: {save_node_response if save_node_response else "None"}
+
                 -- CURRENT ENTRY IN FOCUS --
                 {entry if entry else "No entry selected."}
 
-                Reply briefly and warmly. Only ask for more info if needed. Occasionally ask general internship questions to keep the chat engaging.
-                
-                YOU MUST REPLY A FRIENDLY MSG IN A CONTINUATION OF THE CHAT AND FLOW. 
+                Your responses should be **friendly, warm, and brief**. 
+                Only ask for additional details if truly needed. 
+                Occasionally, ask general internship-related questions to keep the conversation flowing. 
+
+                DO NOT suggest edits, additions, or updates. 
+                Your goal is to **motivate and encourage the user** to continue working on their resume.
             """)
         )
+
 
         # # Include last 3 messages for context (or fewer if less than 3)
         messages = state["messages"]
         
-        response = llm_replier.invoke([system_prompt] + messages, config)
+        response = llm.invoke([system_prompt] + messages, config)
         
                 
         if save_node_response:
@@ -452,8 +516,8 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
         token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
-        token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-        token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+        
+
         
         print("\n\n\n")
         
@@ -462,19 +526,14 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         
         print("\n\n\n\n")
         
-        print("\nTurn Total Input Tokens:", token_count.total_turn_Input_Tokens)
-        print("Turn Total Output Tokens:", token_count.total_turn_Output_Tokens)
-        print("\n\n")
-        
-        token_count.total_turn_Input_Tokens = 0
-        token_count.total_turn_Output_Tokens = 0
-    
+   
+
 
         return {"messages": [response]}
     except Exception as e:
-        
         print("Error in End_node:", e)
-        return {END: END}
+        
+        return {"messages":AIMessage(content="Something went worng"),"next_node": END}
 
 
     
@@ -504,6 +563,10 @@ def internship_model_router(state: SwarmResumeState):
 
     
     return END
+
+
+
+
 
 
 
