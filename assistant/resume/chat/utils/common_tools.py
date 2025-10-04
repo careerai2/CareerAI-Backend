@@ -9,6 +9,8 @@ from langchain_core.tools import tool
 from utils.mapper import resume_section_map,ResumeSectionLiteral,Fields
 import jsonpatch
 from pydantic import BaseModel, field_validator,ValidationError
+from langchain_core.runnables import RunnableConfig
+import jsonpointer
 
 def get_resume(user_id: str, resume_id: str) -> dict:
     """Fetch the resume for a specific user.
@@ -119,13 +121,54 @@ async def send_patch_to_frontend(user_id: str, resume: ResumeLLMSchema):
         print(f"No WebSocket connection found for user {user_id}")
 
 
+def generate_inverse_patch(original_obj, patches):
+    inverse_patches = []
+    for patch in patches:
+        op = patch["op"]
+        path = patch["path"]
+        old_value = jsonpointer.resolve_pointer(original_obj, path)
+        
+        if op == "replace":
+            inverse_patches.append({"op": "replace", "path": path, "value": old_value})
+        elif op == "add":
+            inverse_patches.append({"op": "remove", "path": path})
+        elif op == "remove":
+            inverse_patches.append({"op": "add", "path": path, "value": old_value})
+    return inverse_patches
 
-from typing import List,Union
-from langchain_core.messages import BaseMessage
-from langchain_core.messages.utils import (
-    trim_messages,
-    count_tokens_approximately
-)
+
+# @tool
+def undo_last_patch(thread_id: str) -> dict:
+    """ Undoes the last patch applied to the resume identified by thread_id."""
+    undo_stack_key = f"undo_stack:{thread_id}"
+    last_patch_raw = r.lpop(undo_stack_key)
+    if not last_patch_raw:
+        return {"status": "error", "message": "Nothing to undo"}
+
+    last_patch_entry = json.loads(last_patch_raw)
+    section = last_patch_entry["section"]
+    index = last_patch_entry["index"]
+    patches = last_patch_entry["patches"]
+
+    # Load resume
+    current_resume = json.loads(r.get(f"resume:{thread_id}"))
+    current_section = current_resume.get(section, [])
+
+    if index >= len(current_section):
+        return {"status": "error", "message": "Index out of range for undo"}
+
+    # Generate inverse patch
+    inverse_patches = generate_inverse_patch(current_section[index], patches)
+
+    print(f"Applying inverse patches: {inverse_patches}")
+    # Apply inverse
+    jsonpatch.apply_patch(current_section[index], inverse_patches, in_place=True)
+
+    # Save back
+    current_resume[section] = current_section
+    r.set(f"resume:{thread_id}", json.dumps(current_resume))
+
+    return {"status": "success", "message": "Undo applied","resume": current_resume }
 
 
 import re

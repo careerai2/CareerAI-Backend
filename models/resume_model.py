@@ -22,6 +22,7 @@ class PyObjectId(ObjectId):
 
 # ------------------- Nested Structures ------------------------
 class AcademicProject(BaseModel):
+    hidden: bool = Field(default=False)
     project_name: Optional[str] = None
     project_description: Optional[str] = None
     description_bullets: Optional[List[str]] = Field(default_factory=list)
@@ -29,11 +30,13 @@ class AcademicProject(BaseModel):
     
     
 class Project(BaseModel):
+    hidden: bool = Field(default=False)
     project_name: Optional[str] = None
     project_description: Optional[str] = None
     description_bullets: Optional[List[str]] = Field(default_factory=list)
 
 class WorkExperience(BaseModel):
+    hidden: bool = Field(default=False)
     company_name: Optional[str] = None
     company_description: Optional[str] = None
     location: Optional[str] = None
@@ -43,6 +46,7 @@ class WorkExperience(BaseModel):
     projects: Optional[List[Project]] = Field(default_factory=list)
 
 class Internship(BaseModel):
+    hidden: bool = Field(default=False)
     company_name: Optional[str] = None
     company_description: Optional[str] = None
     location: Optional[str] = None
@@ -52,6 +56,7 @@ class Internship(BaseModel):
     internship_work_description_bullets: Optional[List[str]] = Field(default_factory=list)
 
 class Education(BaseModel):
+    hidden: bool = Field(default=False)
     college: Optional[str] = None
     degree: Optional[str] = None
     start_year: Optional[int] = None
@@ -59,12 +64,14 @@ class Education(BaseModel):
     cgpa: Optional[float] = None
 
 class ScholasticAchievement(BaseModel):
+    hidden: bool = Field(default=False)
     title: Optional[str] = None
     awarding_body: Optional[str] = None
     year: Optional[int] = None
     description: Optional[str] = None
 
 class PositionOfResponsibility(BaseModel):
+    hidden: bool = Field(default=False)
     role: Optional[str] = None
     role_description: Optional[str] = None
     organization: Optional[str] = None
@@ -74,12 +81,14 @@ class PositionOfResponsibility(BaseModel):
     responsibilities: Optional[List[str]] = Field(default_factory=list)
 
 class ExtraCurricular(BaseModel):
+    hidden: bool = Field(default=False)
     activity: Optional[str] = None
     position: Optional[str] = None
     description: Optional[str] = None
     year: Optional[int] = None
 
 class Certification(BaseModel):
+    hidden: bool = Field(default=False)
     certification: Optional[str] = None
     description: Optional[str] = None
     issuing_organization: Optional[str] = None
@@ -138,7 +147,8 @@ class ResumeDocument(BaseModel):
     positions_of_responsibility: List[PositionOfResponsibility] = Field(default_factory=list)
     extra_curriculars: List[ExtraCurricular] = Field(default_factory=list)
     academic_projects: List[AcademicProject] = Field(default_factory=list)
-    certifications: List[Certification] = Field(default_factory=list)   
+    certifications: List[Certification] = Field(default_factory=list)
+    hidden_sections:List[Literal["skills","work_experiences","internships","education_entries","achievements","positions_of_responsibility","extra_curriculars","certifications","academic_projects",None]]=Field(default_factory=list)   
 
     class Config:
         arbitrary_types_allowed = True
@@ -170,6 +180,7 @@ class ResumeLLMSchema(BaseModel):
     extra_curriculars: List[ExtraCurricular] = []
     certifications: List[Certification] = []
     academic_projects: List[AcademicProject] = []
+    hidden_sections:List[Literal["summary","skills","work_experiences","internships","education_entries","achievements","positions_of_responsibility","extra_curriculars","certifications","academic_projects",None]]=Field(default_factory=list)
 
     class Config:
         arbitrary_types_allowed = True

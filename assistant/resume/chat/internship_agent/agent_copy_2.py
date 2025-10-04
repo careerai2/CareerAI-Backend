@@ -393,9 +393,9 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         
         print("\n\n\n\n")
         # Replace patches in state
-        if not isinstance(refined_patches, list):
+        if refined_patches is not None and not isinstance(refined_patches, list):
             state["internship"]["patches"] = [refined_patches]
-        else:    
+        elif refined_patches is not None :    
             state["internship"]["patches"] = refined_patches
 
         return {"next_node": "save_entry_state"}

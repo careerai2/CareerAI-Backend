@@ -40,71 +40,133 @@ llm_replier = llm # tool can be added if needed
 # 4. Node Functions
 # ---------------------------
 
-STATIC_SYSTEM_PROMPT = SystemMessage(
-    content=dedent("""
-    You are a Work Experience Resume Assistant.
-    Rules:
-    - Be concise, professional, action-oriented.
-    - Ask one question at a time; confirm before deletions/overwrites.
-    - Apply changes immediately via send_patches.
-    - No duplicate company names.
-    - Each work experience may have multiple projects.
-    - Projects: Ask first if user wants to add a project, then collect project_name, project_description, bullets.
-    - Use JSON Patch (RFC 6902) strictly.
-    - Chat naturally; do not reveal your role or message transfers.
-    Schema:
-    WorkExperience: {company_name, company_description, location, designation, designation_description, duration, projects[]}
-    Project: {project_name, project_description, description_bullets[]}
-    Tools:
-    - send_patches, update_index_and_focus, get_full_workex_entries
+
+
+from textwrap import dedent
+from langchain.schema import SystemMessage
+from pydantic import ValidationError
+
+def workex_model(state: SwarmResumeState, config: RunnableConfig):
+    """Main chat loop for work experience assistant with robust error handling and dynamic context."""
+
+    try:
+        tailoring_keys = config.get("configurable", {}).get("tailoring_keys", [])
+        current_entries = state.get("resume_schema", {}).get("work_experiences", [])
+        workex_state = state.get("workex", {})
+
+        # --- Safe validation of workex_state ---
+        try:
+            if isinstance(workex_state, dict):
+                workex_state = WorkexState.model_validate(workex_state)
+        except ValidationError as e:
+            print("⚠️ Validation error in WorkexState:", e)
+            workex_state = WorkexState()  # fallback to empty default
+        
+        tailored_current_entries = [
+        (idx, entry.get("company_name"))
+        for idx, entry in enumerate(current_entries)
+        ]
+
+        # --- Determine current focus entry ---
+        index = getattr(workex_state, "index", None)
+        if index is not None and isinstance(index, int) and 0 <= index < len(current_entries):
+            entry = current_entries[index]
+            current_entry_msg = f"Currently focused work experience entry:\n{entry}"
+        elif current_entries:
+            entry = None
+            current_entry_msg = "No valid index selected. Existing work experience entries are available."
+        else:
+            entry = None
+            current_entry_msg = "No work experience entries exist yet."
+
+        # --- prompt ---
+        system_prompt = SystemMessage(
+    content=dedent(f"""
+    You are a **Human-like Work Experience Assistant** for a Resume Builder.
+    Your role: chat naturally, guiding users to refine work experience entries with clarity, brevity, and alignment to {tailoring_keys}.
+    Always be supportive, not interrogative. KEEP RESPONSES UNDER 125 WORDS.
+
+    --- Workflow ---
+    • Gather details conversationally (one clear question at a time).
+    • Avoid duplicate company names.
+    • Confirm with user only if a change may DELETE existing info.
+    • Once user provides info, IMMEDIATELY use Tool `send_patches` to transmit it. No extra confirmation needed unless deleting or overwriting.
+    • For each work experience, capture: role, key outcomes, and measurable impact.
+    • For projects: name, brief description, and 2–4 concise bullets.
+    • DO NOT ask about challenges, learnings, or feelings.
+    • Suggest improvements to existing info (better phrasing, more impact, clarity).
+
+    --- Tool Usage ---
+    • `send_patches`: Minimal JSON Patch ops (RFC 6902). Example:
+      [
+        {{ "op": "replace", "path": "/company_name", "value": "Microsoft" }},
+        {{ "op": "add", "path": "/projects/0/description_bullets/-", "value": "Built API reducing latency by 40%" }}
+      ]
+    • `update_index_and_focus`: Switch focus to another work experience entry.
+    • `get_full_workex_entries`: Fetch details for vague references to older entries.
+    • Additional tools for each section are available—call them when the user wants to move sections.
+
+    --- Schema ---
+    {{company_name, company_description, location, duration, designation, designation_description, projects[{{project_name, project_description, description_bullets[]}}]}}
+
+    --- Current Entries (compact) ---
+    {tailored_current_entries if tailored_current_entries else "No entries yet."}
+
+    --- Current Entry in Focus ---
+    {current_entry_msg}
+
+    --- Guidelines ---
+    • Be concise, friendly, and professional.
+    • Use action-oriented, results-focused phrasing with strong verbs.
+    • Apply info immediately via `send_patches`.
+    • Suggest improvements, confirm before deleting/overwriting.
+    • Append one bullet per patch to `/projects/{{index}}/description_bullets/-`.
     """)
 )
-def workex_model(state: SwarmResumeState, config: RunnableConfig):
-    """Main chat loop for workex assistant with immediate state updates."""
+
+
+
+        # --- Trim conversation history for efficiency ---
+        recent_messages = safe_trim_messages(state.get("messages", []), max_tokens=256)
+
+        # --- LLM Invocation ---
+        try:
+            response = llm_workEx.invoke(
+                [system_prompt] + recent_messages,
+                config
+            )
+        except Exception as e:
+            print("❌ LLM invocation failed:", e)
+            return {
+                "messages": [
+                    {"role": "assistant", "content": "An internal error occurred while processing your work experience update. Please try again."}
+                ]
+            }
+
+        # --- Update token counters ---
+        usage = getattr(response, "usage_metadata", {}) or {}
+        input_tokens = usage.get("input_tokens", 0)
+        output_tokens = usage.get("output_tokens", 0)
+
+        token_count.total_Input_Tokens += input_tokens
+        token_count.total_Output_Tokens += output_tokens
     
-    tailoring_keys = config["configurable"].get("tailoring_keys", [])
-    current_entries = state.get("resume_schema", {}).get("work_experiences", [])
-    workex_state = state.get("workex", {})
 
-    if isinstance(workex_state, dict):
-        workex_state = WorkexState.model_validate(workex_state)
+       
+        # --- Log for debugging ---
+        print("\n\nWorkex_model response:", response.content)
+        print("Workex node Token Usage:", usage)
+        print("\n" + "-" * 80 + "\n")
 
-    index = getattr(workex_state, "index", None)
-    entry = current_entries[index] if index is not None and 0 <= index < len(current_entries) else None
-    current_entry_msg = entry if entry else ("No entry is currently focused." if current_entries else "No workex entries exist yet.")
+        return {"messages": [response]}
 
-    # Dynamic context for this turn (lightweight)
-    dynamic_context_prompt = SystemMessage(
-        content=dedent(f"""
-        Current focus entry: {current_entry_msg}
-        Tailoring keys: {tailoring_keys if tailoring_keys else 'None'}
-        """)
-    )
-    
-
-    # Trim conversation history (keep last 2-3 messages)
-    recent_messages = safe_trim_messages(state["messages"], max_tokens=256)
-
-    # Invoke LLM: static system prompt + dynamic context + recent messages
-    response = llm_workEx.invoke([STATIC_SYSTEM_PROMPT, dynamic_context_prompt] + recent_messages, config)
-
-    # Update token counters
-    token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-    token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
-    token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-    token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
-
-    # Reset per-turn token counters
-    if not getattr(state["messages"][-1:], "tool_calls", None):
-        token_count.total_turn_Input_Tokens = 0
-        token_count.total_turn_Output_Tokens = 0
-    
-    print("\n\nWorkex_model response:", response.content)
-    print("Workex node Token Usage:", response.usage_metadata)
-    
-    print("\n\n\n\n")
-
-    return {"messages": [response]}
+    except Exception as e:
+        print("🔥 Unexpected error in workex_model:", e)
+        return {
+            "messages": [
+                {"role": "assistant", "content": "Something went wrong while processing your work experience. Please try again later."}
+            ]
+        }
 
 
 # Query generator for Retriever 
@@ -304,7 +366,10 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         
         print("\n\n\n\n")
         # Replace patches in state
-        state["workex"]["patches"] = refined_patches
+        if not isinstance(refined_patches, list):
+            state["internship"]["patches"] = [refined_patches]
+        else:    
+            state["internship"]["patches"] = refined_patches
 
         return {"next_node": "save_entry_state"}
 
@@ -374,16 +439,22 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
                 
         system_prompt = SystemMessage(
             content=dedent(f"""
-                You are the Workex Assistant for a Resume Builder.
+                You are a human-like Workexperience Assistant for a Resume Builder.
 
-                The user's workex info was just saved on the focused entry. Last node message: {save_node_response if save_node_response else ""}
-                
+                Focus on **chat engagement**, not on re-outputting or editing entries. 
+                The user already knows what was updated in their internship section.
+
+                Last node message: {save_node_response if save_node_response else "None"}
+
                 -- CURRENT ENTRY IN FOCUS --
                 {entry if entry else "No entry selected."}
 
-                Reply briefly and warmly. Only ask for more info if needed. Occasionally ask general workex questions to keep the chat engaging.
-                
-                YOU MUST REPLY A FRIENDLY MSG IN A CONTINUATION OF THE CHAT AND FLOW. 
+                Your responses should be **friendly, warm, and brief**. 
+                Only ask for additional details if truly needed. 
+                Occasionally, ask general internship-related questions to keep the conversation flowing. 
+
+                DO NOT suggest edits, additions, or updates. 
+                Your goal is to **motivate and encourage the user** to continue working on their resume.
             """)
         )
 

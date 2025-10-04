@@ -15,7 +15,7 @@ from assistant.resume.chat.swarm import stream_graph_to_websocket,update_resume
 from app_instance import app
 from bson import ObjectId
 import logging
-from assistant.resume.chat.utils.common_tools import get_tailoring_keys 
+from assistant.resume.chat.utils.common_tools import get_tailoring_keys,undo_last_patch
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -107,6 +107,17 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: As
                 print("LLM Resume state updated")
                 # await websocket.send_json({"type": "system", "message": "Resume updated in agent state"})
 
+            elif user_input["type"] == "undo":
+                thread_id = f"{user['_id']}:{resume_id}"
+                result = undo_last_patch(thread_id)
+                print("Undo result:", result)
+                if result["status"] == "error":
+                    await websocket.send_json({"type": "error", "message": result["message"]})
+                else:
+                    current_resume = await update_resume(thread_id, result["resume"])
+                    await websocket.send_json({"type": "resume_update", "resume": current_resume})
+                    await websocket.send_json({"type": "system", "message": "Last action undone"})
+                
             elif user_input["type"] == "bullet":
                 thread_id = f"{user['_id']}:{resume_id}"
                 await call_model(

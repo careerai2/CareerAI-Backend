@@ -217,13 +217,14 @@ async def apply_patches(thread_id: str, patches: list[dict]):
             user_id = thread_id
         await send_patch_to_frontend(user_id, current_resume)
         
-        # Maintain undo stack
-        # undo_stack_key = f"undo_stack:{thread_id}"
-        # r.lpush(undo_stack_key, json.dumps(patches))
+        undo_stack_key = f"undo_stack:{thread_id}"
+        r.lpush(undo_stack_key, json.dumps({
+            "section": "internships",
+            "index": index,
+            "patches": patches
+        }))
 
-        # # Clear redo stack on new action
-        # redo_stack_key = f"redo_stack:{thread_id}"
-        # r.delete(redo_stack_key)
+
         
         
         print(f"User ID: {user_id}, patches applied: {patches}")
