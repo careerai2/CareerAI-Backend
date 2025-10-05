@@ -4,7 +4,7 @@ FIELD_MAPPING = {
     "location": "Location",
     "designation": "Designation",
     "designation_description": "Designation Description",
-    "duration": "Duration",
+    "duration": "Duration", 
     "internship_work_description_bullets": "Internship Work Description Bullets",
     "tools_and_technologies": "Tools & Technologies",
     "impact": "Impact",

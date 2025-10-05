@@ -251,7 +251,7 @@ def retriever_node(state: SwarmResumeState, config: RunnableConfig):
             print(f"\n🔍 Running retriever for query {i+1}: on field {patch_field} mapped to KB field {kb_field}")
         
             
-            if patch_field == "description_Bullets":
+            if patch_field == "description_bullets":
                 retrieved_info = new_query_pdf_knowledge_base(
                 query_text=str(query),   # now it's a string
                 role=["workex"],
@@ -303,6 +303,17 @@ def retriever_node(state: SwarmResumeState, config: RunnableConfig):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 # Builder Model
 def builder_model(state: SwarmResumeState, config: RunnableConfig):
     """Refine workex patches using retrieved info."""
@@ -323,28 +334,25 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
             state["messages"].append(SystemMessage(content="No retrieved info available, skipping building."))
             return
 
-        prompt = dedent(f"""You are refining workex resume entries using JSON Patches.
+        prompt = dedent(f"""You are reviewing Work Experience resume entries using JSON Patches.
 
-            ***INSTRUCTIONS:***
-            • Respond in **valid JSON array only** (list of patches).
-            • Input is the current entry + current patches + retrieved info.
-            • Your goal: refine/improve the **values** of the patches using the retrieved info.
-            • Keep good fields unchanged (don’t patch unnecessarily).
-            • **Do NOT change the 'op' or 'path' of any patch.** Only the 'value' can be updated.
-            • Use JSON Patch format strictly:
-            - op: must remain exactly as in the input patch ("add", "replace", "remove")
-            - path: must remain exactly as in the input patch
-            - value: update only if refinement is necessary
+        ***INSTRUCTIONS:***
+        • Respond in **valid JSON array only** (list of patches).
+        • Input is the current entry + current patches + retrieved info.
+        • **Do NOT change any existing patch values, ops, or paths.** The patches must remain exactly as provided.
+        • Use the retrieved info only as **guidance and best practice** for evaluating the patches.
+        • Do NOT add, remove, or replace patches—your task is only to verify and suggest improvements conceptually (no changes to JSON output).
+        • Your response must strictly maintain the original JSON Patch structure provided.
 
-            --- Current Entry on which the new patches to be applied ---
-            {json.dumps(entry, indent=2)}
+        --- Current Entry on which the patches are applied ---
+        {entry}
 
-            --- Current Patches ---
-            {json.dumps(patches, indent=2)}
+        --- Current Patches ---
+        {patches}
 
-            --- Retrieved Info ---
-            {retrieved_info}
-            """)
+        --- Retrieved Info (use only as guidance for best practices) ---
+        {retrieved_info}
+        """)
             
         # messages = safe_trim_messages(state["messages"], max_tokens=256)
         # last_human_msg = next((msg for msg in reversed(messages) if isinstance(msg, HumanMessage)), None)
@@ -367,15 +375,25 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         print("\n\n\n\n")
         # Replace patches in state
         if not isinstance(refined_patches, list):
-            state["internship"]["patches"] = [refined_patches]
-        else:    
-            state["internship"]["patches"] = refined_patches
+            state["workex"]["patches"] = [refined_patches]
+        elif refined_patches and isinstance(refined_patches,list):    
+            state["workex"]["patches"] = refined_patches
 
         return {"next_node": "save_entry_state"}
 
     except Exception as e:
         print("Error in builder_model:", e)
-        return {END: END}
+        return {"next_node": END}
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -407,6 +425,18 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
     except Exception as e:
         print("Error in save_entry_state:", e)
         return None
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
 
 # End Node (Runs after save_entry_node)
@@ -497,6 +527,14 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         
         print("Error in End_node:", e)
         return {END: END}
+
+
+
+
+
+
+
+
 
 
     

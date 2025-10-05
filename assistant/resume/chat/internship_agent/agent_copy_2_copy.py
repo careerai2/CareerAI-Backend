@@ -27,8 +27,36 @@ llm_builder = llm  # tool can be added if needed
 llm_retriever = llm # tool can be added if needed
 
 default_msg = AIMessage(content="Sorry, I couldn't process that. Could you please retry?")
+from langchain.schema import HumanMessage
 
+def queryKb(state: SwarmResumeState, config: RunnableConfig):
+    try:
+        # find last human message
+        last_human_msg = next(
+            (msg for msg in reversed(state["messages"]) if isinstance(msg, HumanMessage)),
+            None
+        )
 
+        if last_human_msg is None:
+            return {"next_node": "internship_model"}  # no human message found
+
+        last_msg_content = last_human_msg.content
+        # print("Last Human Message =>", last_msg_content)
+
+        # query the tech handbook
+        retived_msg = query_tech_handbook(
+            query_text=last_msg_content,
+            role=["tech"], #role needs to be find from tailoring keys will do later
+            n_results=3
+        )
+        
+
+        state["internship"]["knowledge"] = retived_msg
+
+        print("retrived_msg",state["internship"])
+    except Exception as e:
+        print("Error querying message:", e)
+        return {"messages": [AIMessage(content="Sorry! can you repeat")], "next_node": END}
 
 
 # main model
@@ -70,14 +98,57 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
 
     print("retrived_msg",state["internship"])
     
+#     system_prompt = SystemMessage(
+#     content=dedent(f"""
+#     You are a **Human like Internship Assistant** for a Resume Builder.
+#     Your role: chat naturally, guiding users to refine internship entries with clarity, brevity, and alignment to {tailoring_keys}.
+#     Always be supportive, not interrogative. KEEP RESPONSES UNDER 125 WORDS.
+
+#     --- Workflow ---
+#     • Gather details conversationally (one clear question at a time). 
+#     • Avoid duplicate company names.
+#     • Confirm with user only if a change may DELETE existing info.
+#     • Once user provides info, IMMEDIATELY use Tool `send_patches` to transmit it. No extra confirmation needed unless deleting or overwriting.
+#     • For each internship, aim to get 3 pieces of information: what the user did, the outcome, and its impact.
+#     • DO NOT ask about challenges, learnings, or feelings.
+#     • Suggest improvements to existing info (better phrasing, more impact, clarity).
+#     • Keep each bullet between 90–150 characters.
+
+#     --- Tool Usage ---
+#     • `send_patches`: Minimal JSON Patch ops (RFC 6902). Example:
+#       [
+#         {{ "op": "replace", "path": "/company_name", "value": "Google" }},
+#         {{ "op": "add", "path": "/internship_work_description_bullets/-", "value": "Implemented ML pipeline" }}
+#       ]
+#     • `update_index_and_focus`: Switch focus to another internship entry.
+#     • `get_full_internship_entries`: Fetch details for vague references to older entries.
+#     • Additional tools for each section are available—call them when the user wants to move sections.
+
+#     --- Schema ---
+#     {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
+
+#     --- Current Entries (compact) ---
+#     {tailored_current_entries if tailored_current_entries else "No entries yet."}
+
+#     --- Current Entry in Focus ---
+#     {current_entry_msg}
+
+#     --- Guidelines ---
+#     • Be concise, friendly, and professional.
+#     • Use action-oriented phrasing.
+#     • Apply info immediately via `send_patches`.
+#     • Suggest improvements, confirm before deleting/overwriting.
+#     • Append one bullet per patch to `/internship_work_description_bullets/-`.
+#     """)
+# )
     system_prompt = SystemMessage(
     content=dedent(f"""
-    You are a **Human like Internship Assistant** for a Resume Builder.
+    You are a **Human-like Internship Assistant** for a Resume Builder.
     Your role: chat naturally, guiding users to refine internship entries with clarity, brevity, and alignment to {tailoring_keys}.
     Always be supportive, not interrogative. KEEP RESPONSES UNDER 125 WORDS.
 
     --- Workflow ---
-    • Gather details conversationally (one clear question at a time). 
+    • Gather details conversationally (one clear question at a time).
     • Avoid duplicate company names.
     • Confirm with user only if a change may DELETE existing info.
     • Once user provides info, IMMEDIATELY use Tool `send_patches` to transmit it. No extra confirmation needed unless deleting or overwriting.
@@ -105,14 +176,28 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     --- Current Entry in Focus ---
     {current_entry_msg}
 
+    --- Knowledge Guidance (Retrieved Context) ---
+    Use the following retrieved examples and suggestions to **inspire and guide** your phrasing:
+    {state["internship"]["knowledge"]}
+
+    When suggesting or refining bullets:
+    • Draw ideas or structure from the retrieved examples above if they’re relevant.
+    • Prioritize quantified outcomes (%, time saved, scalability metrics, etc.).
+    • Never copy them verbatim — adapt naturally to the user’s context.
+    • If no retrieved content is relevant, proceed as usual.
+
     --- Guidelines ---
     • Be concise, friendly, and professional.
     • Use action-oriented phrasing.
     • Apply info immediately via `send_patches`.
     • Suggest improvements, confirm before deleting/overwriting.
     • Append one bullet per patch to `/internship_work_description_bullets/-`.
+    • Optionally guide users by giving small feedback like:
+      “You could quantify this by mentioning requests handled or performance gain.”
     """)
 )
+
+
 
     try:
  
@@ -585,6 +670,7 @@ internship_tools_node = ToolNode([*tools,*transfer_tools])         # For interns
 
 
 # Nodes
+workflow.add_node("query_node", queryKb)
 workflow.add_node("internship_model", call_internship_model)
 workflow.add_node("query_generator_model", query_generator_model)
 workflow.add_node("retriever_node", retriever_node)
@@ -599,8 +685,9 @@ workflow.add_node("tools_internship", internship_tools_node)
 
 
 
-
-workflow.set_entry_point("internship_model")
+# Entry Point
+workflow.set_entry_point("query_node")
+# workflow.set_entry_point("internship_model")
 
 
 

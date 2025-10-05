@@ -9,7 +9,12 @@ from langgraph_swarm import create_swarm
 
 
 from .education_agent.agent import education_assistant
-from .internship_agent.agent_copy_2 import internship_assistant
+
+
+from .internship_agent.agent_copy_2_copy import internship_assistant
+# from .internship_agent.agent_copy_2 import internship_assistant
+
+
 from .workex_agent.agent_copy_2_copy import workex_assistant
 from .main_agent.agent import main_assistant
 from .position_of_responsibility_agent.agent import position_of_responsibility_assistant
@@ -51,6 +56,8 @@ async def update_resume(thread_id: str, new_resume: dict):
     Updates the resume and Redis, 
     validating against ResumeLLMSchema before saving.
     """
+    
+    # print(new_resume)
     try:
         
         # print("i m saving")
