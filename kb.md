@@ -195,3 +195,48 @@ Initiated, Guided, Planned, Executed, Conducted, Supported
   - Highlight leadership, management, or organizational impact.
   - Include measurable outcomes where possible.
 - Example: *Led a 10-member team to organize a national hackathon with 300+ participants.*
+
+
+
+
+<!-- Academic Projects -->
+
+# Academic Project Document Formatting Guidelines
+
+## Instructions
+- Provide concise, actionable guidelines only.  
+- Focus only on the fields present in the `AcademicProject` schema.  
+- Do not provide instructions for untouched fields.  
+- Always specify formatting requirements for each field (capitalization, length, structure).  
+- Ensure consistency across all entries.  
+
+## Action Verbs (to use in description bullets)
+Developed, Implemented, Optimized, Engineered, Automated, Tested, Designed, Deployed,  
+Refactored, Collaborated, Researched, Analyzed, Documented  
+
+## Schema Requirements & Formatting Rules
+
+### Project Name
+- Use a concise, descriptive title.  
+- Apply Title Case.  
+- Limit to 3–6 words.  
+- Example: **Automated Traffic Analysis System.**  
+
+### Project Description
+- Limit to 1–2 lines max.  
+- Clearly explain the project purpose, scope, or problem addressed.  
+- Avoid vague or marketing-like statements.  
+- Example: *Developed a machine learning model to predict traffic congestion using real-time sensor data.*  
+
+### Description Bullets
+- Provide 3–5 bullets per project.  
+- Each bullet must:  
+  - Begin with an action verb (see list).  
+  - Mention tools, technologies, or techniques used.  
+  - Be maximum 20 words.  
+  - Include measurable results or outcomes where possible.  
+- Example: *Implemented Python scripts to preprocess sensor data, improving model accuracy by 15%.*  
+
+### Duration
+- Format: **MMM YYYY – MMM YYYY** (or *Present* if ongoing).  
+- Example: *Jan 2024 – Apr 2024.*

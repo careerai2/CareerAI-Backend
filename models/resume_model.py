@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr
-from typing import Literal, Optional, List
+from typing import Literal, Optional, List,Dict
 from datetime import datetime
 from bson import ObjectId
 
@@ -22,7 +22,6 @@ class PyObjectId(ObjectId):
 
 # ------------------- Nested Structures ------------------------
 class AcademicProject(BaseModel):
-    hidden: bool = Field(default=False)
     project_name: Optional[str] = None
     project_description: Optional[str] = None
     description_bullets: Optional[List[str]] = Field(default_factory=list)
@@ -30,13 +29,11 @@ class AcademicProject(BaseModel):
     
     
 class Project(BaseModel):
-    hidden: bool = Field(default=False)
     project_name: Optional[str] = None
     project_description: Optional[str] = None
     description_bullets: Optional[List[str]] = Field(default_factory=list)
 
 class WorkExperience(BaseModel):
-    hidden: bool = Field(default=False)
     company_name: Optional[str] = None
     company_description: Optional[str] = None
     location: Optional[str] = None
@@ -46,7 +43,6 @@ class WorkExperience(BaseModel):
     projects: Optional[List[Project]] = Field(default_factory=list)
 
 class Internship(BaseModel):
-    hidden: bool = Field(default=False)
     company_name: Optional[str] = None
     company_description: Optional[str] = None
     location: Optional[str] = None
@@ -56,7 +52,6 @@ class Internship(BaseModel):
     internship_work_description_bullets: Optional[List[str]] = Field(default_factory=list)
 
 class Education(BaseModel):
-    hidden: bool = Field(default=False)
     college: Optional[str] = None
     degree: Optional[str] = None
     start_year: Optional[int] = None
@@ -64,14 +59,12 @@ class Education(BaseModel):
     cgpa: Optional[float] = None
 
 class ScholasticAchievement(BaseModel):
-    hidden: bool = Field(default=False)
     title: Optional[str] = None
     awarding_body: Optional[str] = None
     year: Optional[int] = None
     description: Optional[str] = None
 
 class PositionOfResponsibility(BaseModel):
-    hidden: bool = Field(default=False)
     role: Optional[str] = None
     role_description: Optional[str] = None
     organization: Optional[str] = None
@@ -81,14 +74,12 @@ class PositionOfResponsibility(BaseModel):
     responsibilities: Optional[List[str]] = Field(default_factory=list)
 
 class ExtraCurricular(BaseModel):
-    hidden: bool = Field(default=False)
     activity: Optional[str] = None
     position: Optional[str] = None
     description: Optional[str] = None
     year: Optional[int] = None
 
 class Certification(BaseModel):
-    hidden: bool = Field(default=False)
     certification: Optional[str] = None
     description: Optional[str] = None
     issuing_organization: Optional[str] = None
@@ -99,6 +90,25 @@ class ResumeInput(BaseModel):
     audio_file: Optional[str] = None
     transcribed_text: Optional[str] = None
     submitted_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+
+class HidObj(BaseModel):
+    hidden:bool = False
+    bullets:List[bool] =[]
+
+class WorkexHidObj(BaseModel):
+    hidden:bool = False
+    projects:List[HidObj]=[]
+
+
+class HiddenState(BaseModel):
+    work_experiences: List[WorkexHidObj] = []
+    internships: List[HidObj] = [] 
+    academic_projects: List[HidObj] = []
+    positions_of_responsibility: List[HidObj] = []
+    education_entries:List[bool] =[]
+    achievements: List[bool] =[]
+    extra_curriculars: List[bool] =[]
+    certifications: List[bool] =[]
 
 
 # ------------------- Main Resume Document ------------------------
@@ -149,7 +159,8 @@ class ResumeDocument(BaseModel):
     academic_projects: List[AcademicProject] = Field(default_factory=list)
     certifications: List[Certification] = Field(default_factory=list)
     hidden_sections:List[Literal["skills","work_experiences","internships","education_entries","achievements","positions_of_responsibility","extra_curriculars","certifications","academic_projects",None]]=Field(default_factory=list)   
-
+    hidden_state:HiddenState
+    
     class Config:
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
@@ -181,6 +192,6 @@ class ResumeLLMSchema(BaseModel):
     certifications: List[Certification] = []
     academic_projects: List[AcademicProject] = []
     hidden_sections:List[Literal["summary","skills","work_experiences","internships","education_entries","achievements","positions_of_responsibility","extra_curriculars","certifications","academic_projects",None]]=Field(default_factory=list)
-
+    hidden_state:HiddenState
     class Config:
         arbitrary_types_allowed = True
