@@ -52,10 +52,28 @@ class WorkexState(BaseModel):
     patches: Optional[list[dict]] = Field(default_factory=list)
    
 
+class PorState(BaseModel):
+    generated_query: Optional[str] = None
+    save_node_response: Optional[str] = None
+    retrieved_info: Optional[str] = None
+    index: Optional[int] = None
+    patches: Optional[list[dict]] = Field(default_factory=list)
+    
 
+class AcadState(BaseModel):
+    generated_query: Optional[str] = None
+    save_node_response: Optional[str] = None
+    retrieved_info: Optional[str] = None
+    index: Optional[int] = None
+    patches: Optional[list[dict]] = Field(default_factory=list)
+   
+
+# all the above class can be replaced by one class b'coz they are same currently but may vary later so not changing it  
 
 class SwarmResumeState(SwarmState):
     messages: Annotated[list[AnyMessage], add_messages]
     resume_schema: ResumeLLMSchema
-    internship: InternshipState
-    workex: WorkexState 
+    internship: InternshipState 
+    workex: WorkexState
+    por: PorState 
+    acads:AcadState

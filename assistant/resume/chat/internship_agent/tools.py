@@ -855,6 +855,6 @@ tools = [
 
 
 transfer_tools = [transfer_to_main_agent, transfer_to_por_agent,
-         transfer_to_workex_agent, transfer_to_education_agent,
+         transfer_to_workex_agent, transfer_to_education_agent,transfer_to_acads_agent,
          transfer_to_scholastic_achievement_agent, transfer_to_extra_curricular_agent]
     

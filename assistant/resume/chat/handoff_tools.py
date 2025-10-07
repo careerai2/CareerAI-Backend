@@ -43,6 +43,11 @@ transfer_to_extra_curricular_agent = create_handoff_tool(
     description="Transfer user to the extra-curricular assistant to collect extra-curricular details and manage it in resume."
 )
 
+transfer_to_acads_agent = create_handoff_tool(
+    agent_name="acads_assistant",
+    description="Transfer user to the acad project assistant to collect acad project details and manage it in resume."
+)
+
 
 
 # # Code for custome handoff tool

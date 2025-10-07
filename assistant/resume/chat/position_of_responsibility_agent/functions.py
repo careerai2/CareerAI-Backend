@@ -13,25 +13,25 @@ from ..handoff_tools import *
 from redis_config import redis_client as r , chroma_client, embeddings
 from assistant.resume.chat.utils.common_tools import send_patch_to_frontend
 from langgraph.prebuilt import InjectedState
-from models.resume_model import WorkExperience
+from models.resume_model import PositionOfResponsibility
 # from .state import InternshipState
-from ..llm_model import SwarmResumeState,InternshipState,WorkexState
+from ..llm_model import SwarmResumeState,PorState
 
 import jsonpatch
 
 
 
 # to update any field in internship state like index,retrieved_info of internship agent
-def update_workex_field(thread_id: str, field: Literal["index", "retrieved_info"], value):
+def update_por_field(thread_id: str, field: Literal["index", "retrieved_info"], value):
     """
-    Update any field in the internship state for a given thread_id in Redis (plain JSON string storage).
+    Update any field in the Por state for a given thread_id in Redis (plain JSON string storage).
     
     Args:
         thread_id (str): The unique thread/session ID.
         field (str): The field name to update (e.g., 'index', 'retrieved_info').
         value: The new value to set.
     """
-    key = f"state:{thread_id}:workex"
+    key = f"state:{thread_id}:por"
 
     # Fetch current JSON
     current_resume_json = r.get(key)
@@ -51,28 +51,27 @@ def update_workex_field(thread_id: str, field: Literal["index", "retrieved_info"
     
 
 
-
 async def apply_patches(thread_id: str, patches: list[dict]):
     """
-    Adds or updates a Work Experience (internship/job) in the resume and syncs with Redis + frontend.
-    Robust version with edge case handling, consistent with other sections.
+    Adds or updates a Position of Responsibility (POR) in the resume and syncs with Redis + frontend.
+    Robust version with edge case handling, consistent with internship logic.
     """
     try:
-        # Load workex state from Redis
-        workex_state_raw = r.get(f"state:{thread_id}:workex")
+        # Load POR state from Redis
+        por_state_raw = r.get(f"state:{thread_id}:por")
         index = None
-        if workex_state_raw:
+        if por_state_raw:
             try:
-                workex_state = json.loads(workex_state_raw)
-                index = workex_state.get("index")
+                por_state = json.loads(por_state_raw)
+                index = por_state.get("index")
                 if index is not None:
                     index = int(index)
             except json.JSONDecodeError:
-                print("Corrupted Work Experience state in Redis. Resetting.")
-                workex_state = {}
+                print("Corrupted POR state in Redis. Resetting.")
+                por_state = {}
                 index = None
         else:
-            workex_state = {}
+            por_state = {}
 
         # Early exit if no patches
         if not patches:
@@ -88,44 +87,44 @@ async def apply_patches(thread_id: str, patches: list[dict]):
         except json.JSONDecodeError:
             return {"status": "error", "message": "Corrupted resume data in Redis."}
 
-        # Get existing work experiences list
-        current_workex = current_resume.get("work_experiences", [])
-        current_company_names = [
-            work.get("company_name", "").lower().strip()
-            for work in current_workex if work.get("company_name")
+        # Get existing POR list
+        current_por = current_resume.get("positions_of_responsibility", [])
+        current_roles = [
+            por.get("role", "").lower().strip()
+            for por in current_por if por.get("role")
         ]
 
-        # Check if any patch adds/replaces a new company
-        is_new_company_patch = any(
-            patch.get("path") == "/company_name"
+        # Check if any patch adds/replaces a new role
+        is_new_role_patch = any(
+            patch.get("path") == "/role"
             and patch.get("op") in ("add", "replace")
-            and patch.get("value", "").lower().strip() not in current_company_names
+            and patch.get("value", "").lower().strip() not in current_roles
             for patch in patches
         )
-        if is_new_company_patch:
-            index = None  # Force new work experience creation
+        if is_new_role_patch:
+            index = None  # Force new POR creation
 
-        # Apply patches to existing or new work experience
-        if index is not None and 0 <= index < len(current_workex):
+        # Apply patches to existing or new entry
+        if index is not None and 0 <= index < len(current_por):
             try:
-                jsonpatch.apply_patch(current_workex[index], patches, in_place=True)
-                print(f"Updated Work Experience at index {index}")
+                jsonpatch.apply_patch(current_por[index], patches, in_place=True)
+                print(f"Updated POR at index {index}")
             except jsonpatch.JsonPatchException as e:
                 return {"status": "error", "message": f"Failed to apply patch: {e}"}
         else:
-            # Add new work experience
-            new_workex = WorkExperience().model_dump()
+            # Add new POR entry
+            new_por = PositionOfResponsibility().model_dump()
             try:
-                jsonpatch.apply_patch(new_workex, patches, in_place=True)
+                jsonpatch.apply_patch(new_por, patches, in_place=True)
             except jsonpatch.JsonPatchException as e:
-                return {"status": "error", "message": f"Failed to apply patch to new Work Experience: {e}"}
-            current_workex.append(new_workex)
-            index = len(current_workex) - 1
-            update_workex_field(thread_id, "index", index)
-            print(f"Added new Work Experience at index {index}")
+                return {"status": "error", "message": f"Failed to apply patch to new POR: {e}"}
+            current_por.append(new_por)
+            index = len(current_por) - 1
+            update_por_field(thread_id, "index", index)
+            print(f"Added new POR at index {index}")
 
         # Save back to Redis
-        current_resume["work_experiences"] = current_workex
+        current_resume["positions_of_responsibility"] = current_por
         try:
             r.set(f"resume:{thread_id}", json.dumps(current_resume))
         except TypeError as e:
@@ -141,7 +140,7 @@ async def apply_patches(thread_id: str, patches: list[dict]):
         # Save undo stack
         undo_stack_key = f"undo_stack:{thread_id}"
         r.lpush(undo_stack_key, json.dumps({
-            "section": "work_experiences",
+            "section": "positions_of_responsibility",
             "index": index,
             "patches": patches
         }))
@@ -150,7 +149,7 @@ async def apply_patches(thread_id: str, patches: list[dict]):
 
         return {
             "status": "success",
-            "message": "Work Experience updated successfully.",
+            "message": "Position of Responsibility updated successfully.",
             "index": index
         }
 
@@ -161,10 +160,11 @@ async def apply_patches(thread_id: str, patches: list[dict]):
 
 
 
+
 # new version with more filters
 def new_query_pdf_knowledge_base(
     query_text,
-    role=["workex"],
+    role=["por"],
     section=None,
     subsection=None,
     field=None,
@@ -201,7 +201,7 @@ def new_query_pdf_knowledge_base(
         print(f"🔹 Query: {query_text}")
         print(f"🔹 Filter: {where_filter}")
 
-    collection = chroma_client.get_or_create_collection(name="workex_guide_doc")
+    collection = chroma_client.get_or_create_collection(name="por_guide_doc")
     
     # 3️⃣ Query Chroma
     results = collection.query(

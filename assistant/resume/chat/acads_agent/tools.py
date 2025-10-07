@@ -13,7 +13,7 @@ from ..handoff_tools import *
 from ..utils.update_summar_skills import update_summary_and_skills
 from redis_config import redis_client as r
 from ..llm_model import SwarmResumeState
-from .functions import update_por_field
+from .functions import update_acads_field
 
 @tool
 def get_compact_por_entries(config: RunnableConfig):
@@ -422,12 +422,12 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
         
-        index = getattr(state["por"], "index", None)
+        index = getattr(state["acads"], "index", None)
         
         
         tool_message = ToolMessage(
             content="Successfully transferred to query_generator_model",
-            name="handoff_to_por_model",
+            name="handoff_to_acad_model",
             tool_call_id=tool_call_id,
         )
 
@@ -437,7 +437,7 @@ async def send_patches(
             goto="query_generator_model",
             update={
                 "messages": [tool_message],
-                "por": {
+                "acads": {
                     "retrived_info": "",
                     "patches": patches,
                     "index": index,
@@ -464,7 +464,6 @@ async def send_patches(
 
 
 
-
 @tool
 async def update_index_and_focus(
     index: int,
@@ -472,7 +471,7 @@ async def update_index_and_focus(
     tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig
 ):
-    """Update the index and fetch the corresponding Por entry on which focus is needed."""
+    """Update the index and fetch the corresponding Academic Project entry on which focus is needed."""
     try:
         user_id = config["configurable"].get("user_id")
         resume_id = config["configurable"].get("resume_id")
@@ -480,34 +479,44 @@ async def update_index_and_focus(
         if not user_id or not resume_id:
             raise ValueError("Missing user_id or resume_id in context.")
 
-        resume= state.get("resume_schema", {})
-        current_entries = getattr(resume, "positions_of_responsibility", [])
+        resume = state.get("resume_schema", {})
+        current_entries = getattr(resume, "academic_projects", [])
 
         if len(current_entries) == 0:
-            raise ValueError("No Por entries found in the resume.Add an entry first.")
+            raise ValueError("No academic project entries found in the resume. Add an entry first.")
         if index < 0 or index >= len(current_entries):
-            raise IndexError("Index out of range for por entries.")
+            raise IndexError("Index out of range for academic project entries.")
+
         entry = current_entries[index]
-            
-        update_por_field(f"""{user_id}:{resume_id}""", "index", index)
-        
+
+        update_acads_field(f"{user_id}:{resume_id}", "index", index)
+
         tool_message = ToolMessage(
-            content="Successfully updated the focus to the specified Por entry.",
+            content="✅ Successfully updated the focus to the specified Academic Project entry.",
             name="update_index_and_focus",
             tool_call_id=tool_call_id,
         )
-        
 
         return Command(
-            goto="por_model",
+            goto="acads_model",
             update={
                 "messages": state["messages"] + [tool_message]
             },
         )
-    except Exception as e:
-        print(f"❌ Error getting entry by company name: {e}")
-        return {"status": "error", "message": str(e)}
 
+    except Exception as e:
+        error_message = ToolMessage(
+            content=f"❌ Error updating focus: {str(e)}",
+            name="update_index_and_focus",
+            tool_call_id=tool_call_id,
+        )
+
+        return Command(
+            goto="acads_model",
+            update={
+                "messages": state["messages"] + [error_message]
+            },
+        )
 
 
 
@@ -519,7 +528,7 @@ tools = [
     update_index_and_focus,
         #  get_compact_por_entries,
         #  get_por_entry_by_index,
-         transfer_to_extra_curricular_agent, transfer_to_main_agent,transfer_to_acads_agent,
-         transfer_to_workex_agent, transfer_to_internship_agent
+         transfer_to_extra_curricular_agent, transfer_to_main_agent,
+         transfer_to_workex_agent, transfer_to_internship_agent,transfer_to_acads_agent
          ,transfer_to_education_agent,transfer_to_scholastic_achievement_agent]
 

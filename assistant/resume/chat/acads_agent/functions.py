@@ -13,7 +13,7 @@ from ..handoff_tools import *
 from redis_config import redis_client as r , chroma_client, embeddings
 from assistant.resume.chat.utils.common_tools import send_patch_to_frontend
 from langgraph.prebuilt import InjectedState
-from models.resume_model import WorkExperience
+from models.resume_model import AcademicProject
 # from .state import InternshipState
 from ..llm_model import SwarmResumeState,InternshipState,WorkexState
 
@@ -22,16 +22,16 @@ import jsonpatch
 
 
 # to update any field in internship state like index,retrieved_info of internship agent
-def update_workex_field(thread_id: str, field: Literal["index", "retrieved_info"], value):
+def update_acads_field(thread_id: str, field: Literal["index", "retrieved_info"], value):
     """
-    Update any field in the internship state for a given thread_id in Redis (plain JSON string storage).
+    Update any field in the Por state for a given thread_id in Redis (plain JSON string storage).
     
     Args:
         thread_id (str): The unique thread/session ID.
         field (str): The field name to update (e.g., 'index', 'retrieved_info').
         value: The new value to set.
     """
-    key = f"state:{thread_id}:workex"
+    key = f"state:{thread_id}:por"
 
     # Fetch current JSON
     current_resume_json = r.get(key)
@@ -54,25 +54,25 @@ def update_workex_field(thread_id: str, field: Literal["index", "retrieved_info"
 
 async def apply_patches(thread_id: str, patches: list[dict]):
     """
-    Adds or updates a Work Experience (internship/job) in the resume and syncs with Redis + frontend.
-    Robust version with edge case handling, consistent with other sections.
+    Adds or updates an Academic Project in the resume and syncs with Redis + frontend.
+    Robust version with edge case handling, consistent with internship/por logic.
     """
     try:
-        # Load workex state from Redis
-        workex_state_raw = r.get(f"state:{thread_id}:workex")
+        # Load academic projects state from Redis
+        acads_state_raw = r.get(f"state:{thread_id}:acads")
         index = None
-        if workex_state_raw:
+        if acads_state_raw:
             try:
-                workex_state = json.loads(workex_state_raw)
-                index = workex_state.get("index")
+                acads_state = json.loads(acads_state_raw)
+                index = acads_state.get("index")
                 if index is not None:
                     index = int(index)
             except json.JSONDecodeError:
-                print("Corrupted Work Experience state in Redis. Resetting.")
-                workex_state = {}
+                print("Corrupted Academic Projects state in Redis. Resetting.")
+                acads_state = {}
                 index = None
         else:
-            workex_state = {}
+            acads_state = {}
 
         # Early exit if no patches
         if not patches:
@@ -88,44 +88,44 @@ async def apply_patches(thread_id: str, patches: list[dict]):
         except json.JSONDecodeError:
             return {"status": "error", "message": "Corrupted resume data in Redis."}
 
-        # Get existing work experiences list
-        current_workex = current_resume.get("work_experiences", [])
-        current_company_names = [
-            work.get("company_name", "").lower().strip()
-            for work in current_workex if work.get("company_name")
+        # Get existing academic projects list
+        current_projects = current_resume.get("academic_projects", [])
+        current_project_names = [
+            proj.get("project_name", "").lower().strip()
+            for proj in current_projects if proj.get("project_name")
         ]
 
-        # Check if any patch adds/replaces a new company
-        is_new_company_patch = any(
-            patch.get("path") == "/company_name"
+        # Check if any patch adds/replaces a new project
+        is_new_project_patch = any(
+            patch.get("path") == "/project_name"
             and patch.get("op") in ("add", "replace")
-            and patch.get("value", "").lower().strip() not in current_company_names
+            and patch.get("value", "").lower().strip() not in current_project_names
             for patch in patches
         )
-        if is_new_company_patch:
-            index = None  # Force new work experience creation
+        if is_new_project_patch:
+            index = None  # Force new project creation
 
-        # Apply patches to existing or new work experience
-        if index is not None and 0 <= index < len(current_workex):
+        # Apply patches to existing or new project
+        if index is not None and 0 <= index < len(current_projects):
             try:
-                jsonpatch.apply_patch(current_workex[index], patches, in_place=True)
-                print(f"Updated Work Experience at index {index}")
+                jsonpatch.apply_patch(current_projects[index], patches, in_place=True)
+                print(f"Updated Academic Project at index {index}")
             except jsonpatch.JsonPatchException as e:
                 return {"status": "error", "message": f"Failed to apply patch: {e}"}
         else:
-            # Add new work experience
-            new_workex = WorkExperience().model_dump()
+            # Add new Academic Project entry
+            new_project = AcademicProject().model_dump()
             try:
-                jsonpatch.apply_patch(new_workex, patches, in_place=True)
+                jsonpatch.apply_patch(new_project, patches, in_place=True)
             except jsonpatch.JsonPatchException as e:
-                return {"status": "error", "message": f"Failed to apply patch to new Work Experience: {e}"}
-            current_workex.append(new_workex)
-            index = len(current_workex) - 1
-            update_workex_field(thread_id, "index", index)
-            print(f"Added new Work Experience at index {index}")
+                return {"status": "error", "message": f"Failed to apply patch to new Academic Project: {e}"}
+            current_projects.append(new_project)
+            index = len(current_projects) - 1
+            update_acads_field(thread_id, "index", index)
+            print(f"Added new Academic Project at index {index}")
 
         # Save back to Redis
-        current_resume["work_experiences"] = current_workex
+        current_resume["academic_projects"] = current_projects
         try:
             r.set(f"resume:{thread_id}", json.dumps(current_resume))
         except TypeError as e:
@@ -141,7 +141,7 @@ async def apply_patches(thread_id: str, patches: list[dict]):
         # Save undo stack
         undo_stack_key = f"undo_stack:{thread_id}"
         r.lpush(undo_stack_key, json.dumps({
-            "section": "work_experiences",
+            "section": "academic_projects",
             "index": index,
             "patches": patches
         }))
@@ -150,7 +150,7 @@ async def apply_patches(thread_id: str, patches: list[dict]):
 
         return {
             "status": "success",
-            "message": "Work Experience updated successfully.",
+            "message": "Academic Project updated successfully.",
             "index": index
         }
 
@@ -160,11 +160,10 @@ async def apply_patches(thread_id: str, patches: list[dict]):
         return {"status": "error", "message": f"Unexpected error: {str(e)}"}
 
 
-
 # new version with more filters
 def new_query_pdf_knowledge_base(
     query_text,
-    role=["workex"],
+    role=["acads"],
     section=None,
     subsection=None,
     field=None,
@@ -201,7 +200,7 @@ def new_query_pdf_knowledge_base(
         print(f"🔹 Query: {query_text}")
         print(f"🔹 Filter: {where_filter}")
 
-    collection = chroma_client.get_or_create_collection(name="workex_guide_doc")
+    collection = chroma_client.get_or_create_collection(name="acads_guide_doc")
     
     # 3️⃣ Query Chroma
     results = collection.query(
