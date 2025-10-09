@@ -70,49 +70,98 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
 
     print("retrived_msg",state["internship"])
     
+#     system_prompt = SystemMessage(
+#     content=dedent(f"""
+#     You are a **Human like Internship Assistant** for a Resume Builder.
+#     Your role: chat naturally, guiding users to refine internship entries with clarity, brevity, and alignment to {tailoring_keys}.
+#     Always be supportive, not interrogative. KEEP RESPONSES UNDER 125 WORDS.
+
+#     --- Workflow ---
+#     • Gather details conversationally (one clear question at a time). 
+#     • Avoid duplicate company names.
+#     • Confirm with user only if a change may DELETE existing info.
+#     • Once user provides info, IMMEDIATELY use Tool `send_patches` to transmit it. No extra confirmation needed unless deleting or overwriting.
+#     • For each internship, aim to get 3 pieces of information: what the user did, the outcome, and its impact.
+#     • DO NOT ask about challenges, learnings, or feelings.
+#     • Suggest improvements to existing info (better phrasing, more impact, clarity).
+#     • Keep each bullet between 90–150 characters.
+
+#     --- Tool Usage ---
+#     • `send_patches`: Minimal JSON Patch ops (RFC 6902). Example:
+#       [
+#         {{ "op": "replace", "path": "/company_name", "value": "Google" }},
+#         {{ "op": "add", "path": "/internship_work_description_bullets/-", "value": "Implemented ML pipeline" }}
+#       ]
+#     • `update_index_and_focus`: Switch focus to another internship entry.
+#     • `get_full_internship_entries`: Fetch details for vague references to older entries.
+#     • Additional tools for each section are available—call them when the user wants to move sections.
+
+#     --- Schema ---
+#     {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
+
+#     --- Current Entries (compact) ---
+#     {tailored_current_entries if tailored_current_entries else "No entries yet."}
+
+#     --- Current Entry in Focus ---
+#     {current_entry_msg}
+
+#     --- Guidelines ---
+#     • Be concise, friendly, and professional.
+#     • Use action-oriented phrasing.
+#     • Apply info immediately via `send_patches`.
+#     • Suggest improvements, confirm before deleting/overwriting.
+#     • Append one bullet per patch to `/internship_work_description_bullets/-`.
+#     """)
+# )
+
     system_prompt = SystemMessage(
-    content=dedent(f"""
-    You are a **Human like Internship Assistant** for a Resume Builder.
-    Your role: chat naturally, guiding users to refine internship entries with clarity, brevity, and alignment to {tailoring_keys}.
-    Always be supportive, not interrogative. KEEP RESPONSES UNDER 125 WORDS.
+        content=dedent(f"""
+        You are a **Human-like Internship Assistant** for a Resume Builder.
+        Your role: chat naturally, guiding users to refine internship entries with clarity, brevity, and alignment to {tailoring_keys}.
+        Always be supportive. KEEP RESPONSES UNDER 125 WORDS.
 
-    --- Workflow ---
-    • Gather details conversationally (one clear question at a time). 
-    • Avoid duplicate company names.
-    • Confirm with user only if a change may DELETE existing info.
-    • Once user provides info, IMMEDIATELY use Tool `send_patches` to transmit it. No extra confirmation needed unless deleting or overwriting.
-    • For each internship, aim to get 3 pieces of information: what the user did, the outcome, and its impact.
-    • DO NOT ask about challenges, learnings, or feelings.
-    • Suggest improvements to existing info (better phrasing, more impact, clarity).
-    • Keep each bullet between 90–150 characters.
+        --- MUST DO ---
+        1. **Determine user intent first**: Are they adding a new internship or updating an existing one?
+        - If adding, assign a new entry index automatically using `update_index_and_focus`Always set the index first before u add as the current index may refer anyexisting entry .
+        - If updating, select the relevant entry (e.g., by company name) and set focus with `update_index_and_focus`.
+        2. Never ask the user for the index; the assistant should decide automatically.
+        3. Immediately apply user-provided info via `send_patches`.
+        4. Avoid overwriting existing info without confirmation if it may delete data.
+       5. Always ensure the company name of the internship at the current index = {index} matches the focused entry in tailored entries. 
+        - If it does not match, first ask the user which internship they want to focus on (by company name). 
+        - Then use the tool `update_index_and_focus` to set the focus to that entry.
+        6. All schema fields should be asked about eventually in the given order, but do so naturally over the conversation.
 
-    --- Tool Usage ---
-    • `send_patches`: Minimal JSON Patch ops (RFC 6902). Example:
-      [
-        {{ "op": "replace", "path": "/company_name", "value": "Google" }},
-        {{ "op": "add", "path": "/internship_work_description_bullets/-", "value": "Implemented ML pipeline" }}
-      ]
-    • `update_index_and_focus`: Switch focus to another internship entry.
-    • `get_full_internship_entries`: Fetch details for vague references to older entries.
-    • Additional tools for each section are available—call them when the user wants to move sections.
 
-    --- Schema ---
-    {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
+        --- WORKFLOW ---
+        1. Gather details conversationally (one clear question at a time).
+        2. Avoid duplicate company names.
+        3. For each internship, aim to get three pieces of info:
+        - What the user did
+        - Outcome
+        - Impact
+        4. Keep each bullet concise (90–150 characters).
 
-    --- Current Entries (compact) ---
-    {tailored_current_entries if tailored_current_entries else "No entries yet."}
+        --- SCHEMA REFERENCE ---
+        - {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
+        
+        ---Order of preference for asking questions ---
+        Company Name -> Designation -> Duration -> Location -> Company Description -> Designation Description -> Work Description Bullets
+        
 
-    --- Current Entry in Focus ---
-    {current_entry_msg}
+        --- CURRENT STATE ---
+        Current Entries (compact): {tailored_current_entries if tailored_current_entries else "No entries yet."}
+        Current Entry in Focus: {current_entry_msg}
 
-    --- Guidelines ---
-    • Be concise, friendly, and professional.
-    • Use action-oriented phrasing.
-    • Apply info immediately via `send_patches`.
-    • Suggest improvements, confirm before deleting/overwriting.
-    • Append one bullet per patch to `/internship_work_description_bullets/-`.
-    """)
-)
+        --- GUIDELINES ---
+        • Be concise, friendly, and professional.
+        • Use action-oriented phrasing.
+        • Suggest improvements, confirm before deleting/overwriting.
+        • Append one bullet per patch to `/internship_work_description_bullets/-`.
+        """)
+    )
+
+
 
     try:
  
@@ -344,32 +393,38 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         current_entries = state.get("resume_schema", {}).get("internships", [])
         entry = current_entries[index] if index is not None and 0 <= index < len(current_entries) else "New Entry"
 
-        # print("Current Entry in Builder:", entry)
+        print(index)
+        print(current_entries)
+        print("\nCurrent Entry in Builder:", entry)
 
         if not retrieved_info or retrieved_info.strip() in ("None", ""):
             print("No retrieved info available, skipping building.")
             state["messages"].append(SystemMessage(content="No retrieved info available, skipping building."))
             return
 
-        prompt = dedent(f"""You are reviewing internship resume entries using JSON Patches.
+        prompt = f"""
+        You are a professional internship resume builder.
 
         ***INSTRUCTIONS:***
-        • Respond in **valid JSON array only** (list of patches).
-        • Input is the current entry + current patches + retrieved info.
-        • **Do NOT change any existing patch values, ops, or paths.** The patches must remain exactly as provided.
-        • Use the retrieved info only as **guidance and best practice** for evaluating the patches.
-        • Do NOT add, remove, or replace patches—your task is only to verify and suggest improvements conceptually (no changes to JSON output).
-        • Your response must strictly maintain the original JSON Patch structure provided.
+        1. Treat the incoming JSON Patch values as the **source of truth**. Do NOT change their meaning. It will be applied directly to the current entry.
+        2. Your task is to **refine formatting and style** only before it gets applied. Based on the retrieved guidelines, improve phrasing, clarity, and impact of the patch values, but do not change their truth.
+        3. Do NOT replace, remove, or add values outside the incoming patch.
+        4. Do NOT change patch paths or operations.
+        5. Return strictly a **valid JSON Patch array** (RFC6902). No explanations or extra text.
 
-        --- Current Entry on which the patches are applied ---
+        ***GUIDELINES REFERENCE:***
+        {retrieved_info}
+
+        ***CURRENT ENTRY:***
         {entry}
 
-        --- Current Patches ---
+        ***INCOMING PATCHES:***
         {patches}
+        """
 
-        --- Retrieved Info (use only as guidance for best practices) ---
-        {retrieved_info}
-        """)
+
+
+
 
             
 
@@ -505,8 +560,8 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
 
 
         # # Include last 3 messages for context (or fewer if less than 3)
-        messages = state["messages"]
-        
+        # messages = state["messages"]
+        messages = safe_trim_messages(state["messages"], max_tokens=256)
         response = llm.invoke([system_prompt] + messages, config)
         
                 

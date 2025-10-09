@@ -173,15 +173,6 @@ async def apply_patches(thread_id: str, patches: list[dict]):
             for internship in current_internships if internship.get("company_name")
         ]
 
-        # Check if any patch adds/replaces a new company name
-        is_new_company_patch = any(
-            patch.get("path") == "/company_name"
-            and patch.get("op") in ("add", "replace")
-            and patch.get("value", "").lower().strip() not in current_company_names
-            for patch in patches
-        )
-        if is_new_company_patch:
-            index = None  # Force adding a new internship
 
         # Apply patches
         if index is not None and 0 <= index < len(current_internships):

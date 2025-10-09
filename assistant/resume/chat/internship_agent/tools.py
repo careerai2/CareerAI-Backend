@@ -687,7 +687,20 @@ async def send_patches(
     tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig
 ):
-    """Apply JSON Patch ops (RFC 6902) to the internship actual internship entry in the resume."""
+    """
+Apply JSON Patch (RFC 6902) to the currently focused internship entry.
+
+- Uses the active internship index (set via update_index_and_focus).
+- Updates backend storage and notifies frontend automatically.
+
+Example patch:
+[
+    {"op": "add", "path": "/company_name", "value": "CareerAi"},
+    {"op": "replace", "path": "/role", "value": "Software Engineer Intern"},
+    {"op": "remove", "path": "/temporary_notes"}
+]
+"""
+
     try:
         
         print("PATCH:", patches)
@@ -799,9 +812,12 @@ async def update_index_and_focus(
     config: RunnableConfig
 ):
     """Update the index and fetch the corresponding internship entry on which focus is needed."""
+    
+    print(f"🔄 Updating internship index to: {index}")
     try:
         user_id = config["configurable"].get("user_id")
         resume_id = config["configurable"].get("resume_id")
+        
 
         if not user_id or not resume_id:
             raise ValueError("Missing user_id or resume_id in context.")
@@ -811,7 +827,8 @@ async def update_index_and_focus(
 
         if len(current_entries) == 0:
             raise ValueError("No internship entries found in the resume.Add an entry first.")
-        if index < 0 or index >= len(current_entries):
+        
+        if index < 0 or index >= len(current_entries) + 2: # allow +2 for new entries
             raise IndexError("Index out of range for internship entries.")
         entry = current_entries[index]
             
@@ -850,7 +867,7 @@ tools = [
         # use_knowledge_base,
         # get_compact_internship_entries,
         # get_internship_entry_by_index,
-        get_full_internship_entries,
+        # get_full_internship_entries,
         ]
 
 
