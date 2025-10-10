@@ -457,7 +457,8 @@ async def get_all_resumes_by_user(user_id: str, db: AsyncIOMotorDatabase):
         cursor = resume_collection.find(
             {"user_id": user_id},
             {"title": 1, "template": 1,"_id":1,"status": 1,"updated_at":1}  # include only these fields
-        )
+            
+        ).sort("updated_at", -1) # most recent first
         resumes = await cursor.to_list(length=None)
 
         # Convert ObjectId to string if _id is included

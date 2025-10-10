@@ -215,7 +215,7 @@ async def retrive_entry_from_resume(
 
         # Handle summary separately
         if section == "summary":
-            return resume.get("summary", {})
+            return {"summary":resume.get("summary", {})}
 
         # For other sections, ensure entryIndex is provided
         if (section != "summary" and entryIndex is None):
@@ -273,8 +273,8 @@ async def apply_section_patches(
         # Special case: summary (dict, not list)
         if section == "summary":
             print("Updating summary section")
-            jsonpatch.apply_patch(current_section, patches, in_place=True)
-            current_resume[section] = current_section
+            jsonpatch.apply_patch(current_resume, patches, in_place=True)
+            
 
         else:
             # Ensure index handling

@@ -3,13 +3,14 @@ from enum import Enum
 from typing import Literal
 
 class Fields(str, Enum):
-    Summary = "summary"
+    Summary = "Summary"
     EDUCATION = "Education"
-    INTERNSHIP = "internship"
+    INTERNSHIP = "Internship"
     WORKEX = "WorkEx"
     POR = "POR"
     SCHOLASTIC_ACHIEVEMENT = "Scholastic Achievement"
     EXTRA_CURRICULAR = "Extra Curricular"
+    ACADEMIC_PROJECT = "Academic Projects"
 
 def agent_map(field: Fields) -> str:
 
@@ -49,7 +50,9 @@ def resume_section_map(field: Fields) -> ResumeSectionLiteral:
         Fields.WORKEX: "work_experiences",
         Fields.POR: "positions_of_responsibility",
         Fields.SCHOLASTIC_ACHIEVEMENT: "achievements",
-        Fields.EXTRA_CURRICULAR: "extra_curriculars"
+        Fields.EXTRA_CURRICULAR: "extra_curriculars",
+        Fields.Summary: "summary",
+        Fields.ACADEMIC_PROJECT: "academic_projects"
     }
     return mapping.get(field,"None")
 
@@ -72,11 +75,16 @@ def resume_section_map(field: Fields) -> ResumeSectionLiteral:
 
 Section_MAPPING = {
     "internships": "Internship Document Formatting Guidelines",
-    
+    "work_experiences": "Work Experience Document Formatting Guidelines",
+    "positions_of_responsibility": "Position of Responsibility Document Formatting Guidelines",
+    "academic_projects": ""
 }
 
 Sub_Section_MAPPING = {
     "internships": "Schema Requirements & Formatting Rules",
+     "work_experiences": "Work Experience Document Formatting Guidelines",
+    "positions_of_responsibility": "Position of Responsibility Document Formatting Guidelines",
+    "academic_projects": ""
     
 }
 
@@ -85,4 +93,7 @@ Sub_Section_MAPPING = {
 
 FIELD_MAPPING_Bullet = {
     "internships": "Internship Work Description Bullets",
+    "work_experiences": "Work Experience Description Bullets",
+    "positions_of_responsibility": "Position of Responsibility Description Bullets",
+    "academic_projects": "Academic Project Description Bullets"
 }

@@ -825,8 +825,8 @@ async def update_index_and_focus(
         resume= state.get("resume_schema", {})
         current_entries = getattr(resume, "internships", [])
 
-        if len(current_entries) == 0:
-            raise ValueError("No internship entries found in the resume.Add an entry first.")
+        # if len(current_entries) == 0:
+        #     raise ValueError("No internship entries found in the resume.Add an entry first.")
         
         if index < 0 or index >= len(current_entries) + 2: # allow +2 for new entries
             raise IndexError("Index out of range for internship entries.")

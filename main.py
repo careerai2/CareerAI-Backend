@@ -119,6 +119,7 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: As
                     await websocket.send_json({"type": "system", "message": "Last action undone"})
                 
             elif user_input["type"] == "bullet":
+                print("User input for bullet:", user_input)
                 thread_id = f"{user['_id']}:{resume_id}"
                 await call_model(
                     user_input=user_input["message"],

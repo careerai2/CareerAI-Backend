@@ -168,10 +168,7 @@ async def apply_patches(thread_id: str, patches: list[dict]):
             return {"status": "error", "message": "Corrupted resume data in Redis."}
 
         current_internships = current_resume.get("internships", [])
-        current_company_names = [
-            internship.get("company_name", "").lower().strip()
-            for internship in current_internships if internship.get("company_name")
-        ]
+      
 
 
         # Apply patches
@@ -188,7 +185,11 @@ async def apply_patches(thread_id: str, patches: list[dict]):
                 jsonpatch.apply_patch(new_internship, patches, in_place=True)
             except jsonpatch.JsonPatchException as e:
                 return {"status": "error", "message": f"Failed to apply patch to new entry: {e}"}
-            current_internships.append(new_internship)
+            
+            print("current_internships before adding new:", current_internships)
+            if isinstance(current_internships,list):
+                current_internships.append(new_internship)
+                
             index = len(current_internships) - 1
             # Save new index to internship state
             update_internship_field(thread_id, "index", index)
