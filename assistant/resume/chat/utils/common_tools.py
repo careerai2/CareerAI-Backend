@@ -59,7 +59,6 @@ def get_graph_state(user_id: str, resume_id: str, key: str) -> dict:
                 "retrieved_info": "None",
                 "generated_query": "",
                 "save_node_response": "",
-                "index": None,
                 "pathches": []
             }
             r.set(redis_key, json.dumps(default_state))
@@ -309,3 +308,55 @@ async def apply_section_patches(
 
 
 
+# def get_patch_field_and_index(patch_path: str):
+#     """
+#     Extracts internship index and field from a JSON Patch path.
+#     Examples:
+#       /0/company_name  -> index=0, field='company_name'
+#       /1/duration      -> index=1, field='duration'
+#       /internship_work_description_bullets -> index=None, field='internship_work_description_bullets'
+#     """
+#     parts = patch_path.lstrip("/").split("/")
+#     if len(parts) == 0:
+#         return None, ""
+#     if parts[0].isdigit():
+#         return int(parts[0]), parts[-1]
+#     return None, parts[-1]
+
+def get_patch_field_and_index(patch_path: str):
+    """
+    Extracts internship index and field from a JSON Patch path.
+    Handles:
+      - "/0/company_name" -> index=0, field='company_name'
+      - "/1/role" -> index=1, field='role'
+      - "/internship_work_description_bullets" -> index=None, field='internship_work_description_bullets'
+      - "/-" -> index=None, field=None (append operation)
+      - "/1/internship_work_description_bullets/-" -> index=1, field='internship_work_description_bullets', append=True
+    Returns:
+      index: int | None
+      field: str | None
+      append: bool
+    """
+    parts = patch_path.lstrip("/").split("/")
+    append = False
+    
+    if not parts:
+        return None, None, False
+    
+    # Check if the last part is '-' -> append operation
+    if parts[-1] == "-":
+        append = True
+        parts = parts[:-1]  # remove the '-' to get actual field
+    
+    if not parts:
+        # Path was just "/-"
+        return None, None, append
+    
+    # First part is index if digit
+    if parts[0].isdigit():
+        index = int(parts[0])
+        field = parts[1] if len(parts) > 1 else None
+        return index, field, append
+    
+    # Path without index
+    return None, parts[-1], append

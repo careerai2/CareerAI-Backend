@@ -44,10 +44,10 @@ class WorkExperience(BaseModel):
 
 class Internship(BaseModel):
     company_name: Optional[str] = None
-    company_description: Optional[str] = None
+    # company_description: Optional[str] = None
     location: Optional[str] = None
     designation: Optional[str] = None
-    designation_description: Optional[str] = None
+    # designation_description: Optional[str] = None
     duration: Optional[str] = None
     internship_work_description_bullets: Optional[List[str]] = Field(default_factory=list)
 

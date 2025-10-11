@@ -41,7 +41,6 @@ class InternshipState(BaseModel):
     generated_query: Optional[str] = None
     save_node_response: Optional[str] = None
     retrieved_info: Optional[str] = None
-    index: Optional[int] = None
     patches: Optional[list[dict]] = Field(default_factory=list)
    
 class WorkexState(BaseModel):

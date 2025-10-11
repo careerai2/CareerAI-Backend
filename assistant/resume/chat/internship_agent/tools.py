@@ -688,18 +688,21 @@ async def send_patches(
     config: RunnableConfig
 ):
     """
-Apply JSON Patch (RFC 6902) to the currently focused internship entry.
+Apply JSON Patch (RFC 6902) operations to the internships section of the resume.
 
-- Uses the active internship index (set via update_index_and_focus).
-- Updates backend storage and notifies frontend automatically.
+- Has full context of the current internships list.
+- Automatically generates patches with correct list-level paths for each internship and its fields.
+- Ensures all operations (add, replace, remove) are valid and aligned with the correct internship index.
+- Updates backend storage and syncs changes to the frontend automatically.
 
 Example patch:
 [
-    {"op": "add", "path": "/company_name", "value": "CareerAi"},
-    {"op": "replace", "path": "/role", "value": "Software Engineer Intern"},
-    {"op": "remove", "path": "/temporary_notes"}
+    {"op": "replace", "path": "/0/company_name", "value": "CareerAi"},
+    {"op": "replace", "path": "/1/role", "value": "Software Intern"},
+    {"op": "add", "path": "/-", "value": {"company_name": "OpenAI", "role": "ML Intern"}}
 ]
 """
+
 
     try:
         
@@ -857,7 +860,7 @@ async def update_index_and_focus(
 tools = [
     # internship_Tool, 
     send_patches,
-    update_index_and_focus,
+    # update_index_and_focus,
     # transfer_to_enhancer_pipeline,
     # transfer_to_update_internship_agent,
          reorder_bullet_points_tool,

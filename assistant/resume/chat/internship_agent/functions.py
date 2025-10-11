@@ -131,25 +131,112 @@ def update_internship_field(thread_id: str, field: Literal["index", "retrieved_i
 
 
 
+# async def apply_patches(thread_id: str, patches: list[dict]):
+#     """
+#     Adds or updates an internship in the resume and syncs with Redis + frontend.
+#     Robust version with edge case handling.
+#     """
+#     try:
+#         # Load internship state from Redis
+#         internship_state_raw = r.get(f"state:{thread_id}:internship")
+#         if internship_state_raw:
+#             try:
+#                 internship_state = json.loads(internship_state_raw)
+#             except json.JSONDecodeError:
+#                 print("Corrupted internship state in Redis. Resetting.")
+#                 internship_state = {}
+#         else:
+#             internship_state = {}
+
+#         # Early exit if no patches
+#         if not patches:
+#             return {"status": "success", "message": "No patches to apply."}
+
+#         # Load resume from Redis
+#         current_resume_raw = r.get(f"resume:{thread_id}")
+#         if not current_resume_raw:
+#             return {"status": "error", "message": "Resume not found."}
+
+#         try:
+#             current_resume = json.loads(current_resume_raw)
+#         except json.JSONDecodeError:
+#             return {"status": "error", "message": "Corrupted resume data in Redis."}
+
+#         current_internships = current_resume.get("internships", [])
+      
+
+
+#         # Apply patches
+#         try:
+#             jsonpatch.apply_patch(current_internships, patches, in_place=True)
+#             print(f"Updated internship at index {index}")
+#         except jsonpatch.JsonPatchException as e:
+#             return {"status": "error", "message": f"Failed to apply patch: {e}"}
+#         # Add new internship
+#         new_internship = Internship().model_dump()
+#         try:
+#             jsonpatch.apply_patch(new_internship, patches, in_place=True)
+#         except jsonpatch.JsonPatchException as e:
+#             return {"status": "error", "message": f"Failed to apply patch to new entry: {e}"}
+        
+#         print("current_internships before adding new:", current_internships)
+#         if isinstance(current_internships,list):
+#             current_internships.append(new_internship)
+            
+#         index = len(current_internships) - 1
+#         # Save new index to internship state
+#         update_internship_field(thread_id, "index", index)
+#         print(f"Added new internship at index {index}")
+
+#         # Save back to Redis
+#         current_resume["internships"] = current_internships
+#         try:
+#             r.set(f"resume:{thread_id}", json.dumps(current_resume))
+#         except TypeError as e:
+#             return {"status": "error", "message": f"Failed to serialize resume: {e}"}
+
+#         # Notify frontend safely
+#         try:
+#             user_id = thread_id.split(":", 1)[0]
+#         except IndexError:
+#             user_id = thread_id
+#         await send_patch_to_frontend(user_id, current_resume)
+        
+#         undo_stack_key = f"undo_stack:{thread_id}"
+#         r.lpush(undo_stack_key, json.dumps({
+#             "section": "internships",
+#             "index": index,
+#             "patches": patches
+#         }))
+
+
+        
+        
+#         print(f"User ID: {user_id}, patches applied: {patches}")
+
+#         return {"status": "success", "message": "Internship updated successfully.", "index": index}
+
+#     except ValidationError as ve:
+#         return {"status": "error", "message": f"Validation error: {ve.errors()}"}
+#     except Exception as e:
+#         return {"status": "error", "message": f"Unexpected error: {str(e)}"}
+
+
 async def apply_patches(thread_id: str, patches: list[dict]):
     """
-    Adds or updates an internship in the resume and syncs with Redis + frontend.
-    Robust version with edge case handling.
+    Applies JSON patches to the entire internship section of the resume.
+    Handles creation, replacement, or removal of internships at any index.
+    Syncs updated resume to Redis and frontend.
     """
     try:
-        # Load internship state from Redis
+        # Load internship state
         internship_state_raw = r.get(f"state:{thread_id}:internship")
-        index = None
         if internship_state_raw:
             try:
                 internship_state = json.loads(internship_state_raw)
-                index = internship_state.get("index")
-                if index is not None:
-                    index = int(index)
             except json.JSONDecodeError:
                 print("Corrupted internship state in Redis. Resetting.")
                 internship_state = {}
-                index = None
         else:
             internship_state = {}
 
@@ -157,77 +244,61 @@ async def apply_patches(thread_id: str, patches: list[dict]):
         if not patches:
             return {"status": "success", "message": "No patches to apply."}
 
-        # Load resume from Redis
+        # Load current resume from Redis
         current_resume_raw = r.get(f"resume:{thread_id}")
         if not current_resume_raw:
-            return {"status": "error", "message": "Resume not found."}
+            return {"status": "error", "message": "Resume not found in Redis."}
 
         try:
             current_resume = json.loads(current_resume_raw)
         except json.JSONDecodeError:
             return {"status": "error", "message": "Corrupted resume data in Redis."}
 
+        # Ensure internships section exists
         current_internships = current_resume.get("internships", [])
-      
+        if not isinstance(current_internships, list):
+            current_internships = []
 
+        # ✅ Apply patches to entire internships list
+        try:
+            jsonpatch.apply_patch(current_internships, patches, in_place=True)
+            print(f"Applied patch list to internships: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            return {"status": "error", "message": f"Failed to apply patch list: {e}"}
 
-        # Apply patches
-        if index is not None and 0 <= index < len(current_internships):
-            try:
-                jsonpatch.apply_patch(current_internships[index], patches, in_place=True)
-                print(f"Updated internship at index {index}")
-            except jsonpatch.JsonPatchException as e:
-                return {"status": "error", "message": f"Failed to apply patch: {e}"}
-        else:
-            # Add new internship
-            new_internship = Internship().model_dump()
-            try:
-                jsonpatch.apply_patch(new_internship, patches, in_place=True)
-            except jsonpatch.JsonPatchException as e:
-                return {"status": "error", "message": f"Failed to apply patch to new entry: {e}"}
-            
-            print("current_internships before adding new:", current_internships)
-            if isinstance(current_internships,list):
-                current_internships.append(new_internship)
-                
-            index = len(current_internships) - 1
-            # Save new index to internship state
-            update_internship_field(thread_id, "index", index)
-            print(f"Added new internship at index {index}")
-
-        # Save back to Redis
+        # Save updated internships back to resume
         current_resume["internships"] = current_internships
+
+        # Save updated resume to Redis
         try:
             r.set(f"resume:{thread_id}", json.dumps(current_resume))
         except TypeError as e:
-            return {"status": "error", "message": f"Failed to serialize resume: {e}"}
+            return {"status": "error", "message": f"Failed to serialize updated resume: {e}"}
 
-        # Notify frontend safely
+        # Identify user safely
         try:
             user_id = thread_id.split(":", 1)[0]
         except IndexError:
             user_id = thread_id
+
+        # Notify frontend
         await send_patch_to_frontend(user_id, current_resume)
-        
+
+        # Push to undo stack for revert functionality
         undo_stack_key = f"undo_stack:{thread_id}"
         r.lpush(undo_stack_key, json.dumps({
             "section": "internships",
-            "index": index,
             "patches": patches
         }))
 
+        print(f"User {user_id}: Applied patches to internship section successfully.")
 
-        
-        
-        print(f"User ID: {user_id}, patches applied: {patches}")
-
-        return {"status": "success", "message": "Internship updated successfully.", "index": index}
+        return {"status": "success", "message": "Internships section updated successfully."}
 
     except ValidationError as ve:
         return {"status": "error", "message": f"Validation error: {ve.errors()}"}
     except Exception as e:
         return {"status": "error", "message": f"Unexpected error: {str(e)}"}
-
 
 
 def query_tech_handbook(

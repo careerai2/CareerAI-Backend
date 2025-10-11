@@ -9,7 +9,7 @@ from models.resume_model import Internship
 from .tools import tools, fetch_internship_info,transfer_tools
 from textwrap import dedent
 from utils.safe_trim_msg import safe_trim_messages
-from ..utils.common_tools import extract_json_from_response
+from ..utils.common_tools import extract_json_from_response,get_patch_field_and_index
 import assistant.resume.chat.token_count as token_count
 import json 
 from .functions import apply_patches,update_internship_field,new_query_pdf_knowledge_base,query_tech_handbook
@@ -29,6 +29,14 @@ llm_retriever = llm # tool can be added if needed
 default_msg = AIMessage(content="Sorry, I couldn't process that. Could you please retry?")
 
 
+instruction = {
+    "company_name": "Use official registered name only. | Avoid abbreviations unless globally recognized (e.g., IBM). | Apply Title Case. | Example: **Google LLC.**",
+    "location": "Format: **City, Country.** | Example: *Bengaluru, India.*",
+    "designation": "Write the exact internship title. | Capitalize each word. | Example: **Software Engineering Intern.**",
+    "duration": "Format: **MMM YYYY – MMM YYYY** (or *Present* if ongoing). | Example: *Jun 2024 – Aug 2024.*",
+    "company_description": "",
+    "designation_description": ""
+  }
 
 
 # main model
@@ -38,39 +46,14 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     current_entries = state.get("resume_schema", {}).get("internships", [])
     internship_state = state.get("internship", {})
     
-    tailored_current_entries = [
-    (idx, entry.get("company_name"))
-    for idx, entry in enumerate(current_entries)
-    ]
+   
  
     # print("Internship State in Model Call:", internship_state)
     
-    if isinstance(internship_state, dict):
-        internship_state = InternshipState.model_validate(internship_state)
-
-    index = getattr(internship_state, "index", None)
-    
-    
-    
-    if index is not None and 0 <= index < len(current_entries):
-        entry = current_entries[index]
-    else:
-        entry = None
-        
-    # print("Current Index in State:", index)
-    print("Tailored Entries:-", tailored_current_entries)
-    # print("Current Entry:-",entry)
-    
-    if current_entries and entry:
-        current_entry_msg = entry
-    elif current_entries and not entry:
-        current_entry_msg = f"No entry is currently focused."
-    else:
-        current_entry_msg = "No internship entries exist yet."
-
+   
     print("retrived_msg",state["internship"])
     
-#     system_prompt = SystemMessage(
+    # system_prompt = SystemMessage(
 #     content=dedent(f"""
 #     You are a **Human like Internship Assistant** for a Resume Builder.
 #     Your role: chat naturally, guiding users to refine internship entries with clarity, brevity, and alignment to {tailoring_keys}.
@@ -99,11 +82,8 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
 #     --- Schema ---
 #     {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
 
-#     --- Current Entries (compact) ---
-#     {tailored_current_entries if tailored_current_entries else "No entries yet."}
-
-#     --- Current Entry in Focus ---
-#     {current_entry_msg}
+#     --- Entries in internship section of resume ---
+#     {current_entries if current_entries else []}
 
 #     --- Guidelines ---
 #     • Be concise, friendly, and professional.
@@ -112,97 +92,45 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
 #     • Suggest improvements, confirm before deleting/overwriting.
 #     • Append one bullet per patch to `/internship_work_description_bullets/-`.
 #     """)
-# )
-
-    # system_prompt = SystemMessage(
-    #     content=dedent(f"""
-    #     You are a **Human-like Internship Assistant** for a Resume Builder.
-    #     Your role: chat naturally, guiding users to refine internship entries with clarity, and alignment to {tailoring_keys}.
-
-    #     --- MUST DO ---
-    #     1. **Determine user intent first**: Are they adding a new internship or updating an existing one?
-    #     - If adding, assign a new entry index automatically using `update_index_and_focus`Always set the index first before u add as the current index may refer anyexisting entry .
-    #     - If updating, select the relevant entry (e.g., by company name) and set focus with `update_index_and_focus`.
-    #     2. Never ask the user for the index; the assistant should decide automatically.
-    #     3. Immediately apply user-provided info via `send_patches`.
-    #     4. Avoid overwriting existing info without confirmation if it may delete data.
-    #    5. Always ensure the company name of the internship at the current index = {index} matches the focused entry in tailored entries. 
-    #     - If it does not match, first ask the user which internship they want to focus on (by company name). 
-    #     - Then use the tool `update_index_and_focus` to set the focus to that entry.
-    #     6. All schema fields should be asked about eventually in the given order, but do so naturally over the conversation.
-
-
-    #     --- WORKFLOW ---
-    #     1. Gather details conversationally (one clear question at a time).
-    #     2. Avoid duplicate company names.
-    #     3. For each internship, aim to get three pieces of info:
-    #     - What the user did
-    #     - Outcome
-    #     - Impact
-    #     4. Keep each bullet concise (90–150 characters).
-
-    #     --- SCHEMA REFERENCE ---
-    #     - {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
-        
-    #     ---Order of preference for asking questions ---
-    #     Company Name -> Designation -> Duration -> Location -> Company Description -> Designation Description ->  internship_work_description_bullets
-        
-
-    #     --- CURRENT STATE ---
-    #     Current Entries (compact): {tailored_current_entries if tailored_current_entries else "No entries yet."}
-    #     Current Entry in Focus: {current_entry_msg}
-
-    #     --- GUIDELINES ---
-    #     • Be concise, friendly, and professional.
-    #     • Use action-oriented phrasing.
-    #     • Suggest improvements, confirm before deleting/overwriting.
-    #     • Append one bullet per patch to `/internship_work_description_bullets/-`.
-    #     """)
-    # )
+# ) 
+    print("Current Entries in Internship Model:", current_entries)
 
     system_prompt = SystemMessage(
     content=dedent(f"""
-    You are a **Human-like Internship Assistant** for a Resume Builder.
-    Guide users to add or refine internship entries aligned to {tailoring_keys}.
+        You are a Human like Internship Assistant for a Resume Builder.
+        Your role:Help users add and modify their internship & alos help in refine and optimize the Internship section with precision, brevity, and tailoring.
 
-    --- CORE RULES ---
-    1. Determine intent: adding a new internship or updating an existing one.
-       - For new entries: assign index automatically using `update_index_and_focus`.
-       - For updates: focus the correct entry (by company name) using `update_index_and_focus`.
-    2. Never ask the user for index; decide automatically.
-    3. Immediately apply user-provided info via `send_patches`.
-    4. Avoid overwriting data without confirmation.
-    5. Ensure company name at current index matches the focused entry. If not, ask which internship to focus on and set it.
+        --- Workflow ---
+        • Ask one clear, single-step question at a time.
+        • **Always immediately apply any user-provided information using `send_patches`. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
+        • Use tools as needed,refer their description to know what they do.
+        • Always apply patches directly to the entire internship section (list) — not individual entries — .
+        • Keep outputs concise (~60–70 words max).
+        • For each internship, aim to get 3 pieces of information: what the user did, the outcome, and its impact.
+        • DO NOT ask about challenges, learnings, or feelings.
 
-    --- WORKFLOW ---
-    - Ask one clear question at a time, naturally.
-    - Gather all schema fields in order: 
-      Company Name -> Designation -> Duration -> Location -> Company Description -> Designation Description ->  internship_work_description_bullets
-    - For each internship, aim to get three pieces of info:
-      • What the user did
-      • Outcome
-      • Impact
-    - For each bullet: keep concise (90–150 chars), action-oriented.
-    - Avoid duplicate company names.
+        --- Schema ---
+        {{company_name,location, designation,duration, internship_work_description_bullets[]}}
 
-    --- SCHEMA ---
-    {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
+        --- Current Entries (Compact) ---
+        Always use the following as reference when updating internships:
+        {current_entries}
 
-    --- CURRENT STATE ---
-    Current Entries: {tailored_current_entries if tailored_current_entries else "No entries yet."}
-    Focused Entry: {current_entry_msg}
+        --- Guidelines ---
+        Always uses correct indexes for the internship.
+        Focus on clarity, brevity, and alignment with {tailoring_keys}.
+        Resume updates are auto-previewed — never show raw code/JSON changes.
 
-    --- TONE & STYLE ---
-    - Concise, friendly, professional.
-    - Confirm before deleting/overwriting info.
-    - Append bullets one at a time to `/internship_work_description_bullets/-`.
     """)
 )
 
 
+  
+
+
     try:
  
-        messages = safe_trim_messages(state["messages"], max_tokens=256)
+        messages = safe_trim_messages(state["messages"], max_tokens=325)
         # messages = safe_trim_messages(state["messages"], max_tokens=512)
         response = llm_internship.invoke([system_prompt] + messages, config)
         
@@ -334,80 +262,63 @@ def retriever_node(state: SwarmResumeState, config: RunnableConfig):
             state["internship"]["retrieved_info"] = []
             return {"next_node": "builder_model"}
 
-       
-
         all_results = []
 
-        # 🔄 Loop over each query + patch
+        # Loop over each patch
         for i, patch in enumerate(patches):
+            patch_path = patch.get("path", "")
+            patch_value = patch.get("value", "")
+            index, patch_field,append = get_patch_field_and_index(patch_path)
+            kb_field = FIELD_MAPPING.get(patch_field)
+
+            print(f"\n🔍 Patch {i+1}: internship index={index}, field={patch_field}, KB field={kb_field}")
+
             section = "Internship Document Formatting Guidelines"
-            patch_field = patch.get("path", "").lstrip("/") 
-            patch_field = patch_field.split("/", 1)[0]
-            kb_field = FIELD_MAPPING.get(patch_field) 
             
-            
-            print(f"\n🔍 Running retriever for query {i+1}: on field {patch_field} mapped to KB field {kb_field}")
-        
-            
+            retrieved_info = None  # initialize here to avoid UnboundLocalError
+
             if patch_field == "internship_work_description_bullets":
                 retrieved_info = new_query_pdf_knowledge_base(
-                query_text=str(query),   # now it's a string
-                role=["internship"],
-                section=section,
-                subsection="Action Verbs (to use in work descriptions)",
-                field=kb_field,
-                n_results=5,
-                debug=False
-            )
+                    query_text=str(query),  # query string
+                    role=["internship"],
+                    section=section,
+                    subsection="Action Verbs (to use in work descriptions)",
+                    field=kb_field,
+                    n_results=5,
+                    debug=False
+                )
                 all_results.append(f"[Action Verbs] => {retrieved_info}")
 
-            # Extract actual query text from patch dict
-            patch_query = patch.get("value", "")  
+                retrieved_info = new_query_pdf_knowledge_base(
+                    query_text=str(patch_value),  # use patch value as query
+                    role=["internship"],
+                    section=section,
+                    subsection="Schema Requirements & Formatting Rules",
+                    field=kb_field,
+                    n_results=5,
+                    debug=False
+                )
+                all_results.append(f"[{patch_field}] {retrieved_info}")
 
-            print(f"\n🔍 Running retriever for query {i+1}: {patch_query}")
+            else:
+                retrieved_info = instruction.get(patch_field, '')
+                all_results.append(f"[{patch_field}] {retrieved_info}")
 
-            print
+            print(f"Retriever returned {retrieved_info} results for patch {i+1}.\n")
 
-            retrieved_info = new_query_pdf_knowledge_base(
-                query_text=str(query),   # now it's a string
-                role=["internship"],
-                section=section,
-                subsection="Schema Requirements & Formatting Rules",
-                field=kb_field,
-                n_results=5,
-                debug=False
-            )
 
-            print(f"Retriever returned {retrieved_info} results for patch {i+1}.\n\n")
 
-            all_results.append(f"[{patch_field}] {retrieved_info}")
-
-        all_results = "\n".join(all_results)
-        
-        print("All retrieved info:", all_results,"Type of All results:-",type(all_results))
-        # Save everything back
-        state["internship"]["retrieved_info"] = all_results
-        # state["internship"]["last_query"] = queries
+        all_results_str = "\n".join(all_results)
+        state["internship"]["retrieved_info"] = all_results_str
         state["internship"]["generated_query"] = ""  # clear after use
 
-        print("\n✅ Retrieved info saved:", all_results)
-        print("\n\n\n\n")
+        print("\n✅ Retrieved info saved:", all_results_str, "\n\n")
 
         return {"next_node": "builder_model"}
 
     except Exception as e:
         print("Error in retriever:", e)
         return {END: END}
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -426,13 +337,13 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         patches = state.get("internship", {}).get("patches", [])
         # print("Patches in Builder :-", patches)
         
-        index = state.get("internship", {}).get("index")
+        # index = state.get("internship", {}).get("index")
         current_entries = state.get("resume_schema", {}).get("internships", [])
-        entry = current_entries[index] if index is not None and 0 <= index < len(current_entries) else "New Entry"
+        # entry = current_entries[index] if index is not None and 0 <= index < len(current_entries) else "New Entry"
 
-        print(index)
+        # print(index)
         print(current_entries)
-        print("\nCurrent Entry in Builder:", entry)
+        # print("\nCurrent Entry in Builder:", entry)
 
         if not retrieved_info or retrieved_info.strip() in ("None", ""):
             print("No retrieved info available, skipping building.")
@@ -452,8 +363,6 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         ***GUIDELINES REFERENCE:***
         {retrieved_info}
 
-        ***CURRENT ENTRY:***
-        {entry}
 
         ***INCOMING PATCHES:***
         {patches}
@@ -517,7 +426,7 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         # print("Internship State in save_entry_state:", state.get("internship", {}))
         thread_id = config["configurable"]["thread_id"]
         patches = state.get("internship", {}).get("patches", [])
-        index = state.get("internship", {}).get("index", None)
+
 
         patch_field = [patch["path"] for patch in patches if "path" in patch]
 
@@ -528,8 +437,7 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         if result and result.get("status") == "success":
             print("Entry state updated successfully in Redis.")
             state["internship"]["save_node_response"] = f"patches applied successfully on fields {', '.join(patch_field)}."
-            if "index" in result:
-                state["internship"]["index"] = result.get("index", index)  # Update index if changed
+            
             state["internship"]["patches"] = []  # Clear patches after successful application
             # print("Internship State after save_entry_state:", state.get("internship", {}))
             
@@ -564,16 +472,8 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         if isinstance(internship_state, dict):
             internship_state = InternshipState.model_validate(internship_state)
 
-        index = getattr(internship_state, "index", None)
-        
-        
-        
-        if index is not None and 0 <= index < len(current_entries):
-            entry = current_entries[index]
-        else:
-            entry = None
-                
-                
+ 
+                        
         system_prompt = SystemMessage(
             content=dedent(f"""
                 You are a human-like Internship Assistant for a Resume Builder.
@@ -583,10 +483,8 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
 
                 Last node message: {save_node_response if save_node_response else "None"}
 
-                -- CURRENT ENTRY IN FOCUS --
-                {entry if entry else "No entry selected."}
 
-                Your responses should be **friendly, warm, and brief**. 
+                Your responses should e **friendly, warm, and brief**. 
                 Only ask for additional details if truly needed. 
                 Occasionally, ask general internship-related questions to keep the conversation flowing. 
 
@@ -598,7 +496,7 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
 
         # # Include last 3 messages for context (or fewer if less than 3)
         # messages = state["messages"]
-        messages = safe_trim_messages(state["messages"], max_tokens=256)
+        messages = safe_trim_messages(state["messages"], max_tokens=325)
         response = llm.invoke([system_prompt] + messages, config)
         
                 
