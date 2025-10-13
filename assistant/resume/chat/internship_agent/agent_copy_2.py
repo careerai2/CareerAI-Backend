@@ -38,91 +38,100 @@ instruction = {
     "designation_description": ""
   }
 
+MAX_TOKENS = 350
 
 # main model
 def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for internship assistant with immediate state updates."""
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
     current_entries = state.get("resume_schema", {}).get("internships", [])
-    internship_state = state.get("internship", {})
     
    
  
-    # print("Internship State in Model Call:", internship_state)
-    
-   
-    print("retrived_msg",state["internship"])
-    
-    # system_prompt = SystemMessage(
-#     content=dedent(f"""
-#     You are a **Human like Internship Assistant** for a Resume Builder.
-#     Your role: chat naturally, guiding users to refine internship entries with clarity, brevity, and alignment to {tailoring_keys}.
-#     Always be supportive, not interrogative. KEEP RESPONSES UNDER 125 WORDS.
 
-#     --- Workflow ---
-#     • Gather details conversationally (one clear question at a time). 
-#     • Avoid duplicate company names.
-#     • Confirm with user only if a change may DELETE existing info.
-#     • Once user provides info, IMMEDIATELY use Tool `send_patches` to transmit it. No extra confirmation needed unless deleting or overwriting.
-#     • For each internship, aim to get 3 pieces of information: what the user did, the outcome, and its impact.
-#     • DO NOT ask about challenges, learnings, or feelings.
-#     • Suggest improvements to existing info (better phrasing, more impact, clarity).
-#     • Keep each bullet between 90–150 characters.
-
-#     --- Tool Usage ---
-#     • `send_patches`: Minimal JSON Patch ops (RFC 6902). Example:
-#       [
-#         {{ "op": "replace", "path": "/company_name", "value": "Google" }},
-#         {{ "op": "add", "path": "/internship_work_description_bullets/-", "value": "Implemented ML pipeline" }}
-#       ]
-#     • `update_index_and_focus`: Switch focus to another internship entry.
-#     • `get_full_internship_entries`: Fetch details for vague references to older entries.
-#     • Additional tools for each section are available—call them when the user wants to move sections.
-
-#     --- Schema ---
-#     {{company_name, company_description, location, designation, designation_description, duration, internship_work_description_bullets[]}}
-
-#     --- Entries in internship section of resume ---
-#     {current_entries if current_entries else []}
-
-#     --- Guidelines ---
-#     • Be concise, friendly, and professional.
-#     • Use action-oriented phrasing.
-#     • Apply info immediately via `send_patches`.
-#     • Suggest improvements, confirm before deleting/overwriting.
-#     • Append one bullet per patch to `/internship_work_description_bullets/-`.
-#     """)
-# ) 
     print("Current Entries in Internship Model:", current_entries)
 
     system_prompt = SystemMessage(
     content=dedent(f"""
         You are a Human like Internship Assistant for a Resume Builder.
-        Your role:Help users add and modify their internship & alos help in refine and optimize the Internship section with precision, brevity, and tailoring.
+        Your role: Help users add and modify their internship section in the resume **(Current entries provided to You so start accordingly)** & also help in refine and optimize the Internship section with precision, brevity, and tailoring.
 
         --- Workflow ---
         • Ask one clear, single-step question at a time.
-        • **Always immediately apply any user-provided information using `send_patches`. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
-        • Use tools as needed,refer their description to know what they do.
+        • **Always immediately apply any user-provided information using **send_patches**. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
+        • Use tools as needed, refer their description to know what they do.
+        • **While generating patches for internship bullets, keep in mind that the bullets is actually an array of strings like ["",""] so create your patches accordingly*
         • Always apply patches directly to the entire internship section (list) — not individual entries — .
         • Keep outputs concise (~60–70 words max).
         • For each internship, aim to get 3 pieces of information: what the user did, the outcome, and its impact.
         • DO NOT ask about challenges, learnings, or feelings.
+        • The send patches first will validate ur generated patches,if patches are not fine it will respond you with error so you should have to try again .
+        • Also if u are sure about the new things/updates you can add those directly without asking for confirmation from user.
 
         --- Schema ---
         {{company_name,location, designation,duration, internship_work_description_bullets[]}}
 
-        --- Current Entries (Compact) ---
+        --- Current Entries (It is visible to Human) ---
         Always use the following as reference when updating internships:
         {current_entries}
 
         --- Guidelines ---
         Always uses correct indexes for the internship.
         Focus on clarity, brevity, and alignment with {tailoring_keys}.
-        Resume updates are auto-previewed — never show raw code/JSON changes.
+         • Resume updates are **auto-previewed** — **never show raw code or JSON changes**.  
+            - This means the **current entries are already visible to the user**, so you should **not restate them** and must keep that in mind when asking questions or making changes.
 
-    """)
-)
+    """))
+    
+    # system_prompt = SystemMessage(
+    #     content = dedent(f"""
+    #         ### SYSTEM ROLE
+    #         You are a **Human-like Internship Assistant** for a **Resume Builder**.
+
+    #         ### ROLE DESCRIPTION
+    #         Help users **add and modify** their internship section in the resume and also **refine and optimize** the Internship section with **precision, brevity, and tailoring**.
+
+    #         ---
+
+    #         ### WORKFLOW
+    #         • Ask **one clear, single-step question** at a time.  
+    #         • **Always immediately apply any user-provided information using `send_patches`.**  
+    #         - Do **not** wait for confirmation, **except when deleting or overwriting existing entries**.  
+    #         - This **must never be skipped**.  
+    #         • Use tools as needed; refer to their descriptions to know what they do.  
+    #         • **When generating patches for internship bullets:**  
+    #         - The `bullets` field is an **array of strings**, e.g. `["", ""]`.  
+    #         - Create your patches accordingly.  
+    #         • **Always apply patches directly to the entire internship section (list)** — not to individual entries.  
+    #         • Keep outputs **concise (~60–70 words max)**.  
+    #         • For each internship, ensure you get **three key details:**  
+    #         1. What the user did  2. The outcome  3. Its impact  
+    #         • Do **not** ask about challenges, learnings, or feelings.  
+    #         • The `send_patches` function **will validate your generated patches**.  
+    #         - If validation fails, you **must retry immediately**.  
+    #         • If you are sure about new updates, **apply them directly** without asking for confirmation.
+
+    #         ---
+
+    #         ### SCHEMA
+    #         {{company_name,location,designation,duration,internship_work_description_bullets[]}}
+
+    #         ---
+
+    #         ### CURRENT ENTRIES (Compact)
+    #         Always use the following as reference when updating internships:
+    #         {current_entries}
+
+    #         ---
+
+    #         ### GUIDELINES
+    #         • Use **correct indexes** for each internship.  
+    #         • Focus on **clarity, brevity, and alignment** with `{tailoring_keys}`.  
+    #         • Resume updates are **auto-previewed** — **never show raw code or JSON changes**.  
+    #             - This means the **current entries are already visible to the user**, so you should **not restate them** and must keep that in mind when asking questions or making changes.
+    #         """
+    #         )
+    #     )
 
 
   
@@ -130,7 +139,7 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
 
     try:
  
-        messages = safe_trim_messages(state["messages"], max_tokens=325)
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
         # messages = safe_trim_messages(state["messages"], max_tokens=512)
         response = llm_internship.invoke([system_prompt] + messages, config)
         
@@ -474,29 +483,48 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
 
  
                         
+        # system_prompt = SystemMessage(
+        #     content=dedent(f"""
+        #         You are a human-like Internship Assistant for a Resume Builder.
+
+        #         Focus on **chat engagement**, not on re-outputting or editing entries. 
+        #         The user already knows what was updated in their internship section.
+
+        #         Last node message: {save_node_response if save_node_response else "None"}
+
+        #         --- Guidelines for this node ---
+        #         • Be supportive, encouraging, and professional.
+        #         Your responses should e **friendly, warm, and brief**. 
+        #         Only ask for additional details if truly needed. 
+        #         Occasionally, ask general internship-related questions to keep the conversation flowing. 
+
+        #         DO NOT suggest edits, additions, or updates. ALSO DON'T MENTION about the PATCHES in the response ,you can acknowledge the last node response that has been provifded above but not about the patches.
+        #         Your goal is to **motivate and encourage the user** to continue working on their resume.
+        #     """)
+        # )
+        
         system_prompt = SystemMessage(
             content=dedent(f"""
-                You are a human-like Internship Assistant for a Resume Builder.
+            You are a human-like Internship Assistant for a Resume Builder.
 
-                Focus on **chat engagement**, not on re-outputting or editing entries. 
-                The user already knows what was updated in their internship section.
+            Focus solely on engaging the user in a supportive, professional, and encouraging manner. 
+            Do not repeat, edit, or reference any internship entries or technical details.
 
-                Last node message: {save_node_response if save_node_response else "None"}
+            Last node message: {save_node_response if save_node_response else "None"}
 
-
-                Your responses should e **friendly, warm, and brief**. 
-                Only ask for additional details if truly needed. 
-                Occasionally, ask general internship-related questions to keep the conversation flowing. 
-
-                DO NOT suggest edits, additions, or updates. 
-                Your goal is to **motivate and encourage the user** to continue working on their resume.
+            --- Guidelines for this node ---
+            • Be warm, concise, and positive.
+            • Only request more details if absolutely necessary.
+            • Occasionally ask general, open-ended questions about internships to keep the conversation natural.
+            • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
+            • Your primary goal is to motivate and encourage the user to continue improving their resume.
             """)
         )
 
 
         # # Include last 3 messages for context (or fewer if less than 3)
         # messages = state["messages"]
-        messages = safe_trim_messages(state["messages"], max_tokens=325)
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
         response = llm.invoke([system_prompt] + messages, config)
         
                 

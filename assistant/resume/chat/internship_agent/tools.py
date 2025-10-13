@@ -679,6 +679,7 @@ class entryStateInput(BaseModel):
 
 
 import jsonpatch
+from assistant.resume.chat.utils.patch_validator import  validate_list_patches
 
 @tool
 async def send_patches(
@@ -707,6 +708,7 @@ Example patch:
     try:
         
         print("PATCH:", patches)
+
         
         user_id = config["configurable"].get("user_id")
         resume_id = config["configurable"].get("resume_id")
@@ -716,6 +718,15 @@ Example patch:
 
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
+        
+        
+        internships = getattr(state.get("resume_schema", {}), "internships", [])
+        
+        
+        errors = validate_list_patches(internships, patches,Internship)
+        if errors:
+            print("Patch validation errors:", errors)
+            raise ValueError(f"Patch validation errors: {errors}")
         
         index = getattr(state["internship"], "index", None)
         
@@ -743,11 +754,17 @@ Example patch:
     except Exception as e:
         print(f"❌ Error applying internship entry patches: {e}")
         fallback_msg = ToolMessage(
-            content=f"Error applying patches internally: {e}",
+            content=f"Error applying patches due to the error: {e}",
             name="error_message",
             tool_call_id=tool_call_id,
         )
-        return {"messages": [fallback_msg]}
+        return Command(
+            goto="internship_model",
+            update={
+                "messages": [fallback_msg],
+                "error":True,
+            },
+        )
 
 
 
