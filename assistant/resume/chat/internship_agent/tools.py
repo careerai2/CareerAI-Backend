@@ -1,4 +1,5 @@
 from langchain.tools import tool
+from langchain.tools.base import ToolException
 from pydantic import BaseModel, field_validator
 import json
 from langgraph.graph import END
@@ -683,33 +684,32 @@ from assistant.resume.chat.utils.patch_validator import  validate_list_patches
 
 @tool
 async def send_patches(
-    patches: list[dict],   # <-- instead of entry
+    patches: list[dict],
     state: Annotated[SwarmResumeState, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig
 ):
     """
-Apply JSON Patch (RFC 6902) operations to the internships section of the resume.
+    Apply JSON Patch (RFC 6902) operations to the internships section of the resume.
 
-- Has full context of the current internships list.
-- Automatically generates patches with correct list-level paths for each internship and its fields.
-- Ensures all operations (add, replace, remove) are valid and aligned with the correct internship index.
-- Updates backend storage and syncs changes to the frontend automatically.
+    - Has full context of the current internships list.
+    - Automatically generates patches with correct list-level paths for each internship and its fields.
+    - Ensures all operations (add, replace, remove) are valid and aligned with the correct internship index.
+    - Updates backend storage and syncs changes to the frontend automatically.
 
-Example patch:
-[
-    {"op": "replace", "path": "/0/company_name", "value": "CareerAi"},
-    {"op": "replace", "path": "/1/role", "value": "Software Intern"},
-    {"op": "add", "path": "/-", "value": {"company_name": "OpenAI", "role": "ML Intern"}}
-]
-"""
-
+    Example patch:
+    [
+        {"op": "replace", "path": "/0/company_name", "value": "CareerAi"},
+        {"op": "replace", "path": "/1/role", "value": "Software Intern"},
+        {"op": "add", "path": "/-", "value": {"company_name": "OpenAI", "role": "ML Intern"}}
+    ]
+    """
 
     try:
-        
         print("PATCH:", patches)
 
-        
+
+        # Extract config context
         user_id = config["configurable"].get("user_id")
         resume_id = config["configurable"].get("resume_id")
 
@@ -718,159 +718,41 @@ Example patch:
 
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
-        
-        
-        internships = getattr(state.get("resume_schema", {}), "internships", [])
-        
-        
-        errors = validate_list_patches(internships, patches,Internship)
-        if errors:
-            print("Patch validation errors:", errors)
-            raise ValueError(f"Patch validation errors: {errors}")
-        
-        index = getattr(state["internship"], "index", None)
-        
-        
+
+
         tool_message = ToolMessage(
-            content="Successfully transferred to internship_model",
+            content="Successfully transferred to query_generator_model",
             name="handoff_to_internship_model",
             tool_call_id=tool_call_id,
         )
 
-        
-  
+        # ✅ Success structure
         return Command(
             goto="query_generator_model",
             update={
                 "messages": [tool_message],
                 "internship": {
-                    "retrived_info": "",
                     "patches": patches,
-                    "index": index,
-                },
+                }
             },
         )
 
     except Exception as e:
         print(f"❌ Error applying internship entry patches: {e}")
+
         fallback_msg = ToolMessage(
             content=f"Error applying patches due to the error: {e}",
             name="error_message",
             tool_call_id=tool_call_id,
         )
+
+        # ❌ Do not raise ToolException if you want router to handle it
         return Command(
             goto="internship_model",
             update={
                 "messages": [fallback_msg],
-                "error":True,
             },
         )
-
-
-
-@tool
-async def get_entry_by_company_name(
-    company_name: str,
-    state: Annotated[SwarmResumeState, InjectedState],
-    config: RunnableConfig
-):
-    """get the internship entry by company name."""
-    try:
-        user_id = config["configurable"].get("user_id")
-        resume_id = config["configurable"].get("resume_id")
-
-        if not user_id or not resume_id:
-            raise ValueError("Missing user_id or resume_id in context.")
-
-        resume = get_resume(user_id, resume_id)
-        
-        entries = resume.get("internships", [])
-        
-        if len(entries) == 0:
-            raise ValueError("No internship entries found in the resume.Add an entry first.")
-        
-        entry = next((e for e in entries if e.get("company_name", "").lower() == company_name.lower()), None)
-        
-        if not entry:
-            raise ValueError(f"No internship entry found for company '{company_name}'.")
-        
-        key = f"state:{user_id}:{resume_id}:internship"
-
-        # Load existing state from Redis if present
-        saved_state = r.get(key)
-        if saved_state:
-            if isinstance(saved_state, bytes):   # handle redis-py default
-                saved_state = saved_state.decode("utf-8")
-            saved_state = json.loads(saved_state)
-        else:
-            saved_state = {"entry": {}, "retrived_info": "None"}
-        
-        
-        # Update entry while preserving retrived_info
-        saved_state["entry"] = entry
-        saved_state["index"] = entries.index(entry)
-        
-
-        # Save back to Redis
-        status = r.set(key, json.dumps(saved_state))
-
-        return {
-            "status": "success" if status else "failed",
-        }
-
-    except Exception as e:
-        print(f"❌ Error getting entry by company name: {e}")
-        return {"status": "error", "message": str(e)}
-
-
-
-@tool
-async def update_index_and_focus(
-    index: int,
-    state: Annotated[SwarmResumeState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    config: RunnableConfig
-):
-    """Update the index and fetch the corresponding internship entry on which focus is needed."""
-    
-    print(f"🔄 Updating internship index to: {index}")
-    try:
-        user_id = config["configurable"].get("user_id")
-        resume_id = config["configurable"].get("resume_id")
-        
-
-        if not user_id or not resume_id:
-            raise ValueError("Missing user_id or resume_id in context.")
-
-        resume= state.get("resume_schema", {})
-        current_entries = getattr(resume, "internships", [])
-
-        # if len(current_entries) == 0:
-        #     raise ValueError("No internship entries found in the resume.Add an entry first.")
-        
-        if index < 0 or index >= len(current_entries) + 2: # allow +2 for new entries
-            raise IndexError("Index out of range for internship entries.")
-        entry = current_entries[index]
-            
-        update_internship_field(f"""{user_id}:{resume_id}""", "index", index)
-        
-        tool_message = ToolMessage(
-            content="Successfully updated the focus to the specified internship entry.",
-            name="update_index_and_focus",
-            tool_call_id=tool_call_id,
-        )
-        
-
-        return Command(
-            goto="internship_model",
-            update={
-                "messages": state["messages"] + [tool_message]
-            },
-        )
-    except Exception as e:
-        print(f"❌ Error getting entry by company name: {e}")
-        return {"status": "error", "message": str(e)}
-
 
 
 

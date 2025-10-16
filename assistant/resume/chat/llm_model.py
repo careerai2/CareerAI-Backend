@@ -73,6 +73,5 @@ class SwarmResumeState(SwarmState):
     messages: Annotated[list[AnyMessage], add_messages]
     resume_schema: ResumeLLMSchema
     internship: InternshipState 
-    workex: WorkexState
     por: PorState 
     acads:AcadState

@@ -3,23 +3,25 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.messages import SystemMessage, AIMessage,HumanMessage,FunctionMessage
 from langchain_core.runnables import RunnableConfig
-from ..llm_model import llm,SwarmResumeState,PorState
+from ..llm_model import llm,SwarmResumeState
 from models.resume_model import Internship
 # from .state import SwarmResumeState
 from .tools import tools
 from textwrap import dedent
 from utils.safe_trim_msg import safe_trim_messages
-from ..utils.common_tools import extract_json_from_response
+from ..utils.common_tools import extract_json_from_response,get_patch_field_and_index
 import assistant.resume.chat.token_count as token_count
 import json 
 from .functions import apply_patches,new_query_pdf_knowledge_base
 import re
 from .mappers import FIELD_MAPPING
 
+
 # ---------------------------
 # 2. LLM with Tools
 # ---------------------------
 
+MAX_TOKENS = 325
 
 llm_por = llm.bind_tools(tools)
 # llm_por = llm  # tool can be added if needed
@@ -29,95 +31,65 @@ llm_retriever = llm # tool can be added if needed
 default_msg = AIMessage(content="Sorry, I couldn't process that. Could you please retry?")
 
 
+instruction = {
+    "role": "Write the exact position title. | Capitalize each word. | Example: **Event Coordinator.**",
+    "role_description": "Limit to 1–2 lines max. | Clearly describe the purpose scope of the role. | Example: *Coordinated logistics and scheduling for technical workshops.*",
+    "organization" : "Use the official registered name only. | Avoid abbreviations unless globally recognized (e.g., IEEE). | Apply Title Case. | Example: **Institute of Electrical and Electronics Engineers (IEEE).**",
+    "duration": "Format: **MMM YYYY – MMM YYYY** (or *Present* if ongoing). | Example: *Jan 2024 – Apr 2024.*",
+     "location": "Format: **City, Country.** | Example: *Bengaluru, India.*",
+  }
+
 
 
 # main model
 def call_por_model(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for Por assistant with immediate state updates."""
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
+    
+    
     current_entries = state.get("resume_schema", {}).get("positions_of_responsibility", [])
-    por_state = state.get("por", {})
-    
-    tailored_current_entries = [
-    (idx, entry.get("organization"))
-    for idx, entry in enumerate(current_entries)
-    ]
 
- 
-    # print("Internship State in Model Call:", por_state)
-    
-    if isinstance(por_state, dict):
-        por_state = PorState.model_validate(por_state)
-
-    index = getattr(por_state, "index", None)
-    
-    
-    
-    if index is not None and 0 <= index < len(current_entries):
-        entry = current_entries[index]
-    else:
-        entry = None
-        
-    # print("Current Index in State:", index)
-    print("Tailored Entries:-", tailored_current_entries)
-    # print("Current Entry:-",entry)
-    
-    if current_entries and entry:
-        current_entry_msg = entry
-    elif current_entries and not entry:
-        current_entry_msg = f"No entry is currently focused."
-    else:
-        current_entry_msg = "No Por entries exist yet."
-
-    print("retrived_msg",state["por"])
     
     system_prompt = SystemMessage(
     content=dedent(f"""
-    You are a **Human like POR (Position of Responsibility) Assistant** for a Resume Builder.
-    Your role: chat naturally, guiding users to refine POR entries with clarity, brevity, and alignment to {tailoring_keys}.
-    Always be supportive, not interrogative. KEEP RESPONSES UNDER 125 WORDS.
+        You are a Human-like **POR (Position of Responsibility) Assistant** for a Resume Builder.
+        Your role: Help users add and modify their **Position of Responsibility (POR)** section in the resume **(Current entries provided to You so start accordingly)** & also help refine and optimize this section with precision, brevity, and tailoring.
 
-    --- Workflow ---
-    • Gather details conversationally (one clear question at a time).
-    • Avoid duplicate organization names.
-    • Confirm with user only if a change may DELETE existing info.
-    • Once user provides info, IMMEDIATELY use Tool `send_patches` to transmit it. No extra confirmation needed unless deleting or overwriting.
-    • For each POR, aim to get 3 pieces of information: the user’s role or responsibility, the key actions or initiatives taken, and their measurable or visible impact.
-    • DO NOT ask about challenges, learnings, or feelings.
-    • Suggest improvements to existing info (stronger verbs, measurable outcomes, clearer phrasing).
-    • Keep each bullet between 90–150 characters.
+        --- Workflow ---
+        • Ask one clear, single-step question at a time.
+        • **Always immediately apply any user-provided information using `send_patches`. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
+        • Use tools as needed; refer to their descriptions to know what they do.
+        • **While generating patches for responsibilities, remember that `responsibilities` is an array of strings like ["", ""] — so create your patches accordingly.**
+        • Always apply patches directly to the entire `positions_of_responsibility` section (list) — not individual entries.
+        • Keep outputs concise (~60–70 words max).
+        • For each POR, aim to get 3 main details:
+            1. The role and the organization
+            2. The user’s key responsibilities or achievements in that role
+            3. The duration and location (if relevant)
+        • DO NOT ask about challenges, learnings, or emotions.
+        • The `send_patches` tool will validate your generated patches; if patches are invalid, it will respond with an error — you must then retry generating correct patches or ask the user for clarification.
+        • If you are confident about a new addition or edit, you may apply it directly without asking for confirmation.
 
-    --- Tool Usage ---
-    • `send_patches`: Minimal JSON Patch ops (RFC 6902). Example:
-      [
-        {{ "op": "replace", "path": "/organization", "value": "Entrepreneurship and Development Club, IIT Delhi" }},
-        {{ "op": "add", "path": "/responsibilities/-", "value": "Led 15-member team to organize institute-wide startup bootcamp with 300+ participants" }}
-      ]
-    • `update_index_and_focus`: Switch focus to another POR entry.
-    • `get_full_por_entries`: Fetch details for vague references to older entries.
-    • Additional tools for each section are available—call them when the user wants to move sections.
+        --- Schema ---
+            {{
+                role,role_description,organization,organization_description,location,duration,responsibilities[]
+            }}
 
-    --- Schema ---
-    {{role, role_description, organization, organization_description, location, duration, responsibilities[]}}
+        --- Current Entries (Visible to Human) ---
+        Always use the following as reference when updating POR entries:
+        {current_entries}
 
-    --- Current Entries (compact) ---
-    {tailored_current_entries if tailored_current_entries else "No entries yet."}
+        --- Guidelines ---
+        • Always use correct indexes for the PORs.
+        • Focus on clarity, brevity, and alignment with {tailoring_keys}.
+        • Resume updates are **auto-previewed** — **never show raw code or JSON changes**.  
+            - The **current entries are already visible to the user**, so do **not restate them** when asking questions or making changes.
+    """))
 
-    --- Current Entry in Focus ---
-    {current_entry_msg}
-
-    --- Guidelines ---
-    • Be concise, friendly, and professional.
-    • Use action-oriented phrasing (e.g., Led, Organized, Coordinated, Managed, Initiated).
-    • Apply info immediately via `send_patches`.
-    • Suggest improvements, confirm before deleting/overwriting.
-    • Append one bullet per patch to `/responsibilities/-`.
-    """)
-)
 
     try:
  
-        messages = safe_trim_messages(state["messages"], max_tokens=256)
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
         # messages = safe_trim_messages(state["messages"], max_tokens=512)
         response = llm_por.invoke([system_prompt] + messages, config)
         
@@ -237,93 +209,71 @@ def query_generator_model(state: SwarmResumeState, config: RunnableConfig):
 
 
 
-
-
-# Knowledge Base Retriever
 def retriever_node(state: SwarmResumeState, config: RunnableConfig):
     try:
         query = state.get("por", {}).get("generated_query", [])
         patches = state.get("por", {}).get("patches", [])
-        
-        # print("Por in retriver node",state["por"])
-        
+
         if not query or (isinstance(query, str) and query.strip() in ("None", "")):
             print("No query generated, skipping retrieval.")
             state["por"]["retrieved_info"] = []
             return {"next_node": "builder_model"}
 
-       
+        # Collect all unique fields to avoid redundant fetches
+        unique_fields = set()
+        for patch in patches:
+            _, patch_field, _ = get_patch_field_and_index(patch.get("path", ""))
+            unique_fields.add(patch_field)
+
+        print(f"\n🧠 Unique fields to fetch: {unique_fields}\n")
 
         all_results = []
+        section = "Position of Responsibility Document Formatting Guidelines"
 
-        # 🔄 Loop over each query + patch
-        for i, patch in enumerate(patches):
-            section = "Position of Responsibility Document Formatting Guidelines"
-            patch_field = patch.get("path", "").lstrip("/") 
-            patch_field = patch_field.split("/", 1)[0]
-            kb_field = FIELD_MAPPING.get(patch_field) 
-            
-            print("Patch Field",patch_field)
-            print("\nKb_field",kb_field)
-            
-            
-            
-            print(f"\n🔍 Running retriever for query {i+1}: on field {patch_field} mapped to KB field {kb_field}")
-        
-            
-            if patch_field == "responsibilities":
-                retrieved_info = new_query_pdf_knowledge_base(
-                query_text=str(query),   # now it's a string
-                role=["por"],
-                section=section,
-                subsection="Action Verbs (to use in responsibilities)",
-                field=kb_field,
-                n_results=5,
-                debug=False
-            )
-                all_results.append(f"[Action Verbs] => {retrieved_info}")
+        for field in unique_fields:
+            kb_field = FIELD_MAPPING.get(field)
+            print(f"Fetching KB info for field: {field} -> KB field: {kb_field}")
 
-            # Extract actual query text from patch dict
-            patch_query = patch.get("value", "")  
+            if field == "responsibilities":
+                # Fetch action verbs
+                action_verbs_info = new_query_pdf_knowledge_base(
+                    query_text=str(query),
+                    role=["por"],
+                    section=section,
+                    subsection="Action Verbs (to use in responsibilities)",
+                    field=kb_field,
+                    n_results=5,
+                    debug=False
+                )
+                all_results.append(f"[Action Verbs] => {action_verbs_info}")
 
-            print(f"\n🔍 Running retriever for query {i+1}: {patch_query}")
+                # Fetch schema rules
+                schema_info = new_query_pdf_knowledge_base(
+                    query_text=str(query),
+                    role=["por"],
+                    section=section,
+                    subsection="Schema Requirements & Formatting Rules",
+                    field=kb_field,
+                    n_results=5,
+                    debug=False
+                )
+                all_results.append(f"[{field}] {schema_info}")
 
-         
+            else:
+                retrieved_info = instruction.get(field, '')
+                all_results.append(f"[{field}] {retrieved_info}")
 
-            retrieved_info = new_query_pdf_knowledge_base(
-                query_text=str(query),   # now it's a string
-                role=["por"],
-                section=section,
-                subsection="Schema Requirements & Formatting Rules",
-                field=kb_field,
-                n_results=5,
-                debug=False
-            )
-
-            print(f"Retriever returned {retrieved_info} results for patch {i+1}.\n\n")
-
-            all_results.append(f"[{patch_field}] {retrieved_info}")
-
-        all_results = "\n".join(all_results)
-        
-        print("All retrieved info:", all_results,"Type of All results:-",type(all_results))
-        # Save everything back
-        state["por"]["retrieved_info"] = all_results
-        # state["por"]["last_query"] = queries
+        # Join and store results
+        all_results_str = "\n".join(all_results)
+        state["por"]["retrieved_info"] = all_results_str
         state["por"]["generated_query"] = ""  # clear after use
 
-        print("\n✅ Retrieved info saved:", all_results)
-        print("\n\n\n\n")
-
+        print("\n✅ Retrieved info saved:", all_results_str)
         return {"next_node": "builder_model"}
 
     except Exception as e:
         print("Error in retriever:", e)
         return {END: END}
-
-
-
-
 
 
 
@@ -346,13 +296,8 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         
         retrieved_info = state.get("por", {}).get("retrieved_info", "")
         patches = state.get("por", {}).get("patches", [])
-        # print("Patches in Builder :-", patches)
-        
-        index = state.get("por", {}).get("index")
-        current_entries = state.get("resume_schema", {}).get("positions_of_responsibility", [])
-        entry = current_entries[index] if index is not None and 0 <= index < len(current_entries) else "New Entry"
 
-        # print("Current Entry in Builder:", entry)
+
         print(patches)
 
         if not retrieved_info or retrieved_info.strip() in ("None", ""):
@@ -362,7 +307,7 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
 
         prompt = dedent(f"""You are reviewing por resume entries using JSON Patches.
 
-        ***INSTRUCTIONS:***
+        *** INSTRUCTIONS:    ***
         • Respond in **valid JSON array only** (list of patches).
         • Input is the current entry + current patches + retrieved info.
         • **Do NOT change any existing patch values, ops, or paths.** The patches must remain exactly as provided.
@@ -370,8 +315,6 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         • Do NOT add, remove, or replace patches—your task is only to verify and suggest improvements conceptually (no changes to JSON output).
         • Your response must strictly maintain the original JSON Patch structure provided.
 
-        --- Current Entry on which the patches are applied ---
-        {entry}
 
         --- Current Patches ---
         {patches}
@@ -434,7 +377,6 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         # print("Internship State in save_entry_state:", state.get("por", {}))
         thread_id = config["configurable"]["thread_id"]
         patches = state.get("por", {}).get("patches", [])
-        index = state.get("por", {}).get("index", None)
 
         print("patches In save Node:", patches)
         patch_field = [patch["path"] for patch in patches if "path" in patch]
@@ -446,10 +388,7 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         if result and result.get("status") == "success":
             print("Entry state updated successfully in Redis.")
             state["por"]["save_node_response"] = f"patches applied successfully on fields {', '.join(patch_field)}."
-            if "index" in result:
-                state["por"]["index"] = result.get("index", index)  # Update index if changed
-            state["por"]["patches"] = []  # Clear patches after successful application
-            # print("Internship State after save_entry_state:", state.get("por", {}))
+          
             
             print("\n\n\n\n")
     except Exception as e:
@@ -473,51 +412,29 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         
         print("End Node - save_node_response:", save_node_response)
 
-        current_entries = state.get("resume_schema", {}).get("positions_of_responsibility", [])
-        por_state = state.get("por", {})
-        
-    
-        # print("Internship State in Model Call:", por_state)
-        
-        if isinstance(por_state, dict):
-            por_state = PorState.model_validate(por_state)
-
-        index = getattr(por_state, "index", None)
-        
-        
-        
-        if index is not None and 0 <= index < len(current_entries):
-            entry = current_entries[index]
-        else:
-            entry = None
-                
-                
+     
         system_prompt = SystemMessage(
-        content=dedent(f"""
-        You are a human-like POR (Position of Responsibility) Assistant for a Resume Builder.
+            content=dedent(f"""
+            You are a human-like POR Assistant for a Resume Builder.
 
-        Focus on **chat engagement**, not on re-outputting or editing entries. 
-        The user already knows what was updated in their POR section.
+            Focus solely on engaging the user in a supportive, professional, and encouraging manner. 
+            Do not repeat, edit, or reference any por entries or technical details.
 
-        Last node message: {save_node_response if save_node_response else "None"}
+            Last node message: {save_node_response if save_node_response else "None"}
 
-        --- CURRENT ENTRY IN FOCUS ---
-        {entry if entry else "No entry selected."}
-
-        Your responses should be **friendly, warm, and brief**.
-        Only ask for additional details if truly needed.
-        Occasionally, ask general POR-related questions to keep the conversation flowing 
-        (e.g., leadership experiences, event management, team coordination, or impact highlights).
-
-        DO NOT suggest edits, additions, or updates.
-        Your goal is to **motivate, appreciate, and encourage** the user to continue refining their resume.
-    """)
-)
+            --- Guidelines for this node ---
+            • Be warm, concise, and positive.
+            • Only request more details if absolutely necessary.
+            • Occasionally ask general, open-ended questions about projects to keep the conversation natural.
+            • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
+            • Your primary goal is to motivate and encourage the user to continue improving their resume.
+            """)
+        )
 
 
 
         # # Include last 3 messages for context (or fewer if less than 3)
-        messages = state["messages"]
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
         
         response = llm.invoke([system_prompt] + messages, config)
         

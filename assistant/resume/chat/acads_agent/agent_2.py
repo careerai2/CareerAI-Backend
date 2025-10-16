@@ -9,7 +9,7 @@ from models.resume_model import Internship
 from .tools import tools
 from textwrap import dedent
 from utils.safe_trim_msg import safe_trim_messages
-from ..utils.common_tools import extract_json_from_response
+from ..utils.common_tools import extract_json_from_response,get_patch_field_and_index
 import assistant.resume.chat.token_count as token_count
 import json 
 from .functions import apply_patches,new_query_pdf_knowledge_base
@@ -30,95 +30,60 @@ default_msg = AIMessage(content="Sorry, I couldn't process that. Could you pleas
 
 
 
+instruction = {
+    "project_name": "Use a concise, descriptive title. | Apply Title Case. | Limit to 3–6 words. | Example: **Automated Traffic Analysis System.**",
+    "project_description": "- Limit to 1–2 lines max. | Clearly explain the project purpose, scope, or problem addressed. | Avoid vague or marketing-like statements. | Example: *Developed a machine learning model to predict traffic congestion using real-time sensor data.*  ",
+    "duration": "Format: **MMM YYYY – MMM YYYY** (or *Present* if ongoing). | Example: *Jan 2024 – Apr 2024.*",
+  }
 
+
+
+MAX_TOKEN = 325  # max token limit for messages (adjust as needed)
 # main model
 def call_acads_model(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for Por assistant with immediate state updates."""
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
     current_entries = state.get("resume_schema", {}).get("academic_projects", [])
-    acads_state = state.get("acads", {})
     
-    tailored_current_entries = [
-    (idx, entry.get("organization"))
-    for idx, entry in enumerate(current_entries)
-    ]
-
- 
-    # print("Internship State in Model Call:", acads_state)
-    
-    if isinstance(acads_state, dict):
-        acads_state = AcadState.model_validate(acads_state)
-
-    index = getattr(acads_state, "index", None)
-    
-    
-    
-    if index is not None and 0 <= index < len(current_entries):
-        entry = current_entries[index]
-    else:
-        entry = None
-        
-    # print("Current Index in State:", index)
-    print("Tailored Entries:-", tailored_current_entries)
-    # print("Current Entry:-",entry)
-    
-    if current_entries and entry:
-        current_entry_msg = entry
-    elif current_entries and not entry:
-        current_entry_msg = f"No entry is currently focused."
-    else:
-        current_entry_msg = "No Por entries exist yet."
-
-    print("retrived_msg",state["acads"])
+   
     
     system_prompt = SystemMessage(
-            content=dedent(f"""
-            You are a **Human like Academic Project Assistant** for a Resume Builder.
-            Your role: chat naturally, guiding users to refine academic project entries with clarity, brevity, and alignment to {tailoring_keys}.
-            Always be supportive, not interrogative. KEEP RESPONSES UNDER 125 WORDS.
+    content=dedent(f"""
+        You are a Human like Academic Project Assistant for a Resume Builder.
+        Your role: Help users add and modify their academic project section in the resume **(Current entries provided to You so start accordingly)** & also help refine and optimize the academic project section with precision, brevity, and tailoring.
 
-            --- Workflow ---
-            • Gather details conversationally (one clear question at a time).
-            • Avoid duplicate project names.
-            • Confirm with the user only if a change may DELETE existing info.
-            • Once the user provides info, IMMEDIATELY use Tool `send_patches` to transmit it. No extra confirmation needed unless deleting or overwriting.
-            • For each project, aim to get 3 pieces of information: what the project was about, what the user specifically did, and the result or technical outcome.
-            • DO NOT ask about challenges, learnings, or feelings.
-            • Suggest improvements to existing info (stronger verbs, more impact, technical precision).
-            • Keep each bullet between 90–150 characters.
+        --- Workflow ---
+        • Ask one clear, single-step question at a time.
+        • **Always immediately apply any user-provided information using `send_patches`,because you may get out of **context** so **make changes**. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
+        • Use tools as needed; refer to their descriptions to know what they do.
+        • **While generating patches for project bullets, keep in mind that `description_bullets` is actually an array of strings like ["", ""] — so create your patches accordingly.**
+        • Always apply patches directly to the entire `academic_projects` section (list) — not individual entries.
+        • Keep outputs concise (~60–70 words max).
+        • For each project, aim to get 3 pieces of information: what the user built, how they built it (tools, methods, or approach), and what result or functionality was achieved.
+        • DO NOT ask about challenges, learnings, or feelings.
+        • The `send_patches` tool will validate your generated patches; if patches are not fine, it will respond with an error, so you should retry generating correct patches.
+        • If `send_patches` returns an error, you must either retry generating correct patches or ask the user for clarification before proceeding.
+        • If you are sure about new additions or updates, you may add them directly without asking for user confirmation.
 
-            --- Tool Usage ---
-            • `send_patches`: Minimal JSON Patch ops (RFC 6902). Example:
-            [
-                {{ "op": "replace", "path": "/project_name", "value": "Heat Transfer Analysis of Disc Brake" }},
-                {{ "op": "add", "path": "/description_bullets/-", "value": "Simulated braking heat distribution using COMSOL to compare three rotor materials" }}
-            ]
-            • `update_index_and_focus`: Switch focus to another academic project.
-            • `get_full_academic_projects`: Fetch details for vague references to older entries.
-            • Additional tools for each section are available—call them when the user wants to move sections.
-
-            --- Schema ---
+       --- Schema ---
             {{project_name, project_description, description_bullets[], duration}}
 
-            --- Current Entries (compact) ---
-            {tailored_current_entries if tailored_current_entries else "No entries yet."}
+        --- Current Entries (It is visible to Human) ---
+        Always use the following as reference when updating academic projects:
+        {current_entries}
 
-            --- Current Entry in Focus ---
-            {current_entry_msg}
+        --- Guidelines ---
+        Always use correct indexes for the projects.
+        Focus on clarity, brevity, and alignment with {tailoring_keys}.
+         • Resume updates are **auto-previewed** — **never show raw code or JSON changes**.  
+            - This means the **current entries are already visible to the user**, so you should **not restate them** and must keep that in mind when asking questions or making changes.
+    """))
 
-            --- Guidelines ---
-            • Be concise, friendly, and professional.
-            • Use action-oriented phrasing (e.g., Designed, Analyzed, Implemented, Modeled, Simulated).
-            • Apply info immediately via `send_patches`.
-            • Suggest improvements, confirm before deleting/overwriting.
-            • Append one bullet per patch to `/description_bullets/-`.
-            """)
-        )
 
 
     try:
  
-        messages = safe_trim_messages(state["messages"], max_tokens=256)
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKEN)
         # messages = safe_trim_messages(state["messages"], max_tokens=512)
         response = llm_acads.invoke([system_prompt] + messages, config)
         
@@ -259,51 +224,48 @@ def retriever_node(state: SwarmResumeState, config: RunnableConfig):
 
         all_results = []
 
-        # 🔄 Loop over each query + patch
+        # Loop over each patch
         for i, patch in enumerate(patches):
+            patch_path = patch.get("path", "")
+            patch_value = patch.get("value", "")
+            index, patch_field,append = get_patch_field_and_index(patch_path)
+            kb_field = FIELD_MAPPING.get(patch_field)
+
+            print(f"\n🔍 Patch {i+1}: project index={index}, field={patch_field}, KB field={kb_field}")
+
             section = "Academic Project Document Formatting Guidelines"
-            patch_field = patch.get("path", "").lstrip("/") 
-            patch_field = patch_field.split("/", 1)[0]
-            kb_field = FIELD_MAPPING.get(patch_field) 
             
-            print("Patch Field",patch_field)
-            print("\Kb_field",kb_field)
-            
-            print(f"\n🔍 Running retriever for query {i+1}: on field {patch_field} mapped to KB field {kb_field}")
-        
-            
+            retrieved_info = None  # initialize here to avoid UnboundLocalError
+
             if patch_field == "description_bullets":
                 retrieved_info = new_query_pdf_knowledge_base(
-                query_text=str(query),   # now it's a string
-                role=["acads"],
-                section=section,
-                subsection="Action Verbs (to use in description bullets)",
-                field=kb_field,
-                n_results=5,
-                debug=False
-            )
+                    query_text=str(query),  # query string
+                    role=["acads"],
+                    section=section,
+                    subsection="Action Verbs (to use in work descriptions)",
+                    field=kb_field,
+                    n_results=5,
+                    debug=False
+                )
                 all_results.append(f"[Action Verbs] => {retrieved_info}")
 
-            # Extract actual query text from patch dict
-            patch_query = patch.get("value", "")  
+                retrieved_info = new_query_pdf_knowledge_base(
+                    query_text=str(patch_value),  # use patch value as query
+                    role=["acads"],
+                    section=section,
+                    subsection="Schema Requirements & Formatting Rules",
+                    field=kb_field,
+                    n_results=5,
+                    debug=False
+                )
+                all_results.append(f"[{patch_field}] {retrieved_info}")
 
-            print(f"\n🔍 Running retriever for query {i+1}: {patch_query}")
+            else:
+                retrieved_info = instruction.get(patch_field, '')
+                all_results.append(f"[{patch_field}] {retrieved_info}")
 
-         
+            print(f"Retriever returned {retrieved_info} results for patch {i+1}.\n")
 
-            retrieved_info = new_query_pdf_knowledge_base(
-                query_text=str(query),   # now it's a string
-                role=["acads"],
-                section=section,
-                subsection="Schema Requirements & Formatting Rules",
-                field=kb_field,
-                n_results=5,
-                debug=False
-            )
-
-            print(f"Retriever returned {retrieved_info} results for patch {i+1}.\n\n")
-
-            all_results.append(f"[{patch_field}] {retrieved_info}")
 
         all_results = "\n".join(all_results)
         
@@ -349,12 +311,8 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         patches = state.get("acads", {}).get("patches", [])
         # print("Patches in Builder :-", patches)
         
-        index = state.get("acads", {}).get("index")
-        current_entries = state.get("resume_schema", {}).get("academic_projects", [])
-        entry = current_entries[index] if index is not None and 0 <= index < len(current_entries) else "New Entry"
+        
 
-        # print("Current Entry in Builder:", entry)
-        print(patches)
 
         if not retrieved_info or retrieved_info.strip() in ("None", ""):
             print("No retrieved info available, skipping building.")
@@ -371,9 +329,6 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         • Do NOT add, remove, or replace patches—your task is only to verify and suggest improvements conceptually (no changes to JSON output).
         • Your response must strictly maintain the original JSON Patch structure provided.
 
-        --- Current Entry on which the patches are applied ---
-        {entry}
-
         --- Current Patches ---
         {patches}
 
@@ -385,7 +340,7 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
 
 
             
-        # messages = safe_trim_messages(state["messages"], max_tokens=256)
+        # messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKEN)
         # last_human_msg = next((msg for msg in reversed(messages) if isinstance(msg, HumanMessage)), None)
 
 
@@ -435,7 +390,7 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         # print("Internship State in save_entry_state:", state.get("acads", {}))
         thread_id = config["configurable"]["thread_id"]
         patches = state.get("acads", {}).get("patches", [])
-        index = state.get("acads", {}).get("index", None)
+        
 
         print("patches In save Node:", patches)
         patch_field = [patch["path"] for patch in patches if "path" in patch]
@@ -447,10 +402,7 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         if result and result.get("status") == "success":
             print("Entry state updated successfully in Redis.")
             state["acads"]["save_node_response"] = f"patches applied successfully on fields {', '.join(patch_field)}."
-            if "index" in result:
-                state["acads"]["index"] = result.get("index", index)  # Update index if changed
-            state["acads"]["patches"] = []  # Clear patches after successful application
-            # print("Internship State after save_entry_state:", state.get("acads", {}))
+            state["acads"]["patches"] = []  
             
             print("\n\n\n\n")
     except Exception as e:
@@ -474,49 +426,32 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         
         print("End Node - save_node_response:", save_node_response)
 
-        current_entries = state.get("resume_schema", {}).get("academic_projects", [])
-        acads_state = state.get("acads", {})
+        # current_entries = state.get("resume_schema", {}).get("academic_projects", [])
+        # acads_state = state.get("acads", {})
         
     
-        # print("Internship State in Model Call:", acads_state)
         
-        if isinstance(acads_state, dict):
-            acads_state = AcadState.model_validate(acads_state)
-
-        index = getattr(acads_state, "index", None)
-        
-        
-        
-        if index is not None and 0 <= index < len(current_entries):
-            entry = current_entries[index]
-        else:
-            entry = None
-                
                 
         system_prompt = SystemMessage(
-        content=dedent(f"""
-        You are a human-like POR (Position of Responsibility) Assistant for a Resume Builder.
+            content=dedent(f"""
+            You are a human-like Academic Project Assistant for a Resume Builder.
 
-        Focus on **chat engagement**, not on re-outputting or editing entries. 
-        The user already knows what was updated in their POR section.
+            Focus solely on engaging the user in a supportive, professional, and encouraging manner. 
+            Do not repeat, edit, or reference any project entries or technical details.
 
-        Last node message: {save_node_response if save_node_response else "None"}
+            Last node message: {save_node_response if save_node_response else "None"}
 
-        --- CURRENT ENTRY IN FOCUS ---
-        {entry if entry else "No entry selected."}
-
-        Your responses should be **friendly, warm, and brief**.
-        Only ask for additional details if truly needed.
-        Occasionally, ask general POR-related questions to keep the conversation flowing 
-        (e.g., leadership experiences, event management, team coordination, or impact highlights).
-
-        DO NOT suggest edits, additions, or updates.
-        Your goal is to **motivate, appreciate, and encourage** the user to continue refining their resume.
-    """)
-)
+            --- Guidelines for this node ---
+            • Be warm, concise, and positive.
+            • Only request more details if absolutely necessary.
+            • Occasionally ask general, open-ended questions about projects to keep the conversation natural.
+            • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
+            • Your primary goal is to motivate and encourage the user to continue improving their resume.
+            """)
+        )
 
 
-        messages = safe_trim_messages(state["messages"], max_tokens=256)
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKEN)
         # # Include last 3 messages for context (or fewer if less than 3)
         messages = state["messages"]
         

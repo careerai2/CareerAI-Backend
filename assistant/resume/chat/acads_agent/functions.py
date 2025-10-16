@@ -51,113 +51,76 @@ def update_acads_field(thread_id: str, field: Literal["index", "retrieved_info"]
     
 
 
-
 async def apply_patches(thread_id: str, patches: list[dict]):
     """
-    Adds or updates an Academic Project in the resume and syncs with Redis + frontend.
-    Robust version with edge case handling, consistent with internship/por logic.
+    Applies JSON patches to the entire academic projecr section of the resume.
+    Handles creation, replacement, or removal of academic_projects at any index.
+    Syncs updated resume to Redis and frontend.
     """
     try:
-        # Load academic projects state from Redis
-        acads_state_raw = r.get(f"state:{thread_id}:acads")
-        index = None
-        if acads_state_raw:
-            try:
-                acads_state = json.loads(acads_state_raw)
-                index = acads_state.get("index")
-                if index is not None:
-                    index = int(index)
-            except json.JSONDecodeError:
-                print("Corrupted Academic Projects state in Redis. Resetting.")
-                acads_state = {}
-                index = None
-        else:
-            acads_state = {}
+        # Load internship state
+        
 
         # Early exit if no patches
         if not patches:
             return {"status": "success", "message": "No patches to apply."}
 
-        # Load resume from Redis
+        # Load current resume from Redis
         current_resume_raw = r.get(f"resume:{thread_id}")
         if not current_resume_raw:
-            return {"status": "error", "message": "Resume not found."}
+            return {"status": "error", "message": "Resume not found in Redis."}
 
         try:
             current_resume = json.loads(current_resume_raw)
         except json.JSONDecodeError:
             return {"status": "error", "message": "Corrupted resume data in Redis."}
 
-        # Get existing academic projects list
-        current_projects = current_resume.get("academic_projects", [])
-        current_project_names = [
-            proj.get("project_name", "").lower().strip()
-            for proj in current_projects if proj.get("project_name")
-        ]
+        # Ensure academic_projects section exists
+        currrent_acads = current_resume.get("academic_projects", [])
+        if not isinstance(currrent_acads, list):
+            currrent_acads = []
 
-        # Check if any patch adds/replaces a new project
-        is_new_project_patch = any(
-            patch.get("path") == "/project_name"
-            and patch.get("op") in ("add", "replace")
-            and patch.get("value", "").lower().strip() not in current_project_names
-            for patch in patches
-        )
-        if is_new_project_patch:
-            index = None  # Force new project creation
+        # ✅ Apply patches to entire academic_projects list
+        try:
+            jsonpatch.apply_patch(currrent_acads, patches, in_place=True)
+            print(f"Applied patch list to academic_projects: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            return {"status": "error", "message": f"Failed to apply patch list: {e}"}
 
-        # Apply patches to existing or new project
-        if index is not None and 0 <= index < len(current_projects):
-            try:
-                jsonpatch.apply_patch(current_projects[index], patches, in_place=True)
-                print(f"Updated Academic Project at index {index}")
-            except jsonpatch.JsonPatchException as e:
-                return {"status": "error", "message": f"Failed to apply patch: {e}"}
-        else:
-            # Add new Academic Project entry
-            new_project = AcademicProject().model_dump()
-            try:
-                jsonpatch.apply_patch(new_project, patches, in_place=True)
-            except jsonpatch.JsonPatchException as e:
-                return {"status": "error", "message": f"Failed to apply patch to new Academic Project: {e}"}
-            current_projects.append(new_project)
-            index = len(current_projects) - 1
-            update_acads_field(thread_id, "index", index)
-            print(f"Added new Academic Project at index {index}")
+        # Save updated academic_projects back to resume
+        current_resume["academic_projects"] = currrent_acads
 
-        # Save back to Redis
-        current_resume["academic_projects"] = current_projects
+        # Save updated resume to Redis
         try:
             r.set(f"resume:{thread_id}", json.dumps(current_resume))
         except TypeError as e:
-            return {"status": "error", "message": f"Failed to serialize resume: {e}"}
+            return {"status": "error", "message": f"Failed to serialize updated resume: {e}"}
 
-        # Notify frontend safely
+        # Identify user safely
         try:
             user_id = thread_id.split(":", 1)[0]
         except IndexError:
             user_id = thread_id
+
+        # Notify frontend
         await send_patch_to_frontend(user_id, current_resume)
 
-        # Save undo stack
+        # Push to undo stack for revert functionality
         undo_stack_key = f"undo_stack:{thread_id}"
         r.lpush(undo_stack_key, json.dumps({
             "section": "academic_projects",
-            "index": index,
             "patches": patches
         }))
 
-        print(f"User ID: {user_id}, patches applied: {patches}")
+        print(f"User {user_id}: Applied patches to internship section successfully.")
 
-        return {
-            "status": "success",
-            "message": "Academic Project updated successfully.",
-            "index": index
-        }
+        return {"status": "success", "message": "Internships section updated successfully."}
 
     except ValidationError as ve:
         return {"status": "error", "message": f"Validation error: {ve.errors()}"}
     except Exception as e:
         return {"status": "error", "message": f"Unexpected error: {str(e)}"}
+
 
 
 # new version with more filters

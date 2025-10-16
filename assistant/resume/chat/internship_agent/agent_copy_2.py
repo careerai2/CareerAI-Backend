@@ -66,6 +66,7 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
         • For each internship, aim to get 3 pieces of information: what the user did, the outcome, and its impact.
         • DO NOT ask about challenges, learnings, or feelings.
         • The send patches first will validate ur generated patches,if patches are not fine it will respond you with error so you should have to try again .
+        • If send_patches returns an error, you must either retry generating correct patches or respond to the user asking for clarification before proceeding.
         • Also if u are sure about the new things/updates you can add those directly without asking for confirmation from user.
 
         --- Schema ---

@@ -15,7 +15,7 @@ from assistant.resume.chat.utils.common_tools import send_patch_to_frontend
 from langgraph.prebuilt import InjectedState
 from models.resume_model import PositionOfResponsibility
 # from .state import InternshipState
-from ..llm_model import SwarmResumeState,PorState
+from ..llm_model import SwarmResumeState
 
 import jsonpatch
 
@@ -53,111 +53,73 @@ def update_por_field(thread_id: str, field: Literal["index", "retrieved_info"], 
 
 async def apply_patches(thread_id: str, patches: list[dict]):
     """
-    Adds or updates a Position of Responsibility (POR) in the resume and syncs with Redis + frontend.
-    Robust version with edge case handling, consistent with internship logic.
+    Applies JSON patches to the entire academic projecr section of the resume.
+    Handles creation, replacement, or removal of positions_of_responsibility at any index.
+    Syncs updated resume to Redis and frontend.
     """
     try:
-        # Load POR state from Redis
-        por_state_raw = r.get(f"state:{thread_id}:por")
-        index = None
-        if por_state_raw:
-            try:
-                por_state = json.loads(por_state_raw)
-                index = por_state.get("index")
-                if index is not None:
-                    index = int(index)
-            except json.JSONDecodeError:
-                print("Corrupted POR state in Redis. Resetting.")
-                por_state = {}
-                index = None
-        else:
-            por_state = {}
+        # Load internship state
+        
 
         # Early exit if no patches
         if not patches:
             return {"status": "success", "message": "No patches to apply."}
 
-        # Load resume from Redis
+        # Load current resume from Redis
         current_resume_raw = r.get(f"resume:{thread_id}")
         if not current_resume_raw:
-            return {"status": "error", "message": "Resume not found."}
+            return {"status": "error", "message": "Resume not found in Redis."}
 
         try:
             current_resume = json.loads(current_resume_raw)
         except json.JSONDecodeError:
             return {"status": "error", "message": "Corrupted resume data in Redis."}
 
-        # Get existing POR list
-        current_por = current_resume.get("positions_of_responsibility", [])
-        current_roles = [
-            por.get("role", "").lower().strip()
-            for por in current_por if por.get("role")
-        ]
+        # Ensure positions_of_responsibility section exists
+        currrent_acads = current_resume.get("positions_of_responsibility", [])
+        if not isinstance(currrent_acads, list):
+            currrent_acads = []
 
-        # Check if any patch adds/replaces a new role
-        is_new_role_patch = any(
-            patch.get("path") == "/role"
-            and patch.get("op") in ("add", "replace")
-            and patch.get("value", "").lower().strip() not in current_roles
-            for patch in patches
-        )
-        if is_new_role_patch:
-            index = None  # Force new POR creation
+        # ✅ Apply patches to entire positions_of_responsibility list
+        try:
+            jsonpatch.apply_patch(currrent_acads, patches, in_place=True)
+            print(f"Applied patch list to positions_of_responsibility: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            return {"status": "error", "message": f"Failed to apply patch list: {e}"}
 
-        # Apply patches to existing or new entry
-        if index is not None and 0 <= index < len(current_por):
-            try:
-                jsonpatch.apply_patch(current_por[index], patches, in_place=True)
-                print(f"Updated POR at index {index}")
-            except jsonpatch.JsonPatchException as e:
-                return {"status": "error", "message": f"Failed to apply patch: {e}"}
-        else:
-            # Add new POR entry
-            new_por = PositionOfResponsibility().model_dump()
-            try:
-                jsonpatch.apply_patch(new_por, patches, in_place=True)
-            except jsonpatch.JsonPatchException as e:
-                return {"status": "error", "message": f"Failed to apply patch to new POR: {e}"}
-            current_por.append(new_por)
-            index = len(current_por) - 1
-            update_por_field(thread_id, "index", index)
-            print(f"Added new POR at index {index}")
+        # Save updated positions_of_responsibility back to resume
+        current_resume["positions_of_responsibility"] = currrent_acads
 
-        # Save back to Redis
-        current_resume["positions_of_responsibility"] = current_por
+        # Save updated resume to Redis
         try:
             r.set(f"resume:{thread_id}", json.dumps(current_resume))
         except TypeError as e:
-            return {"status": "error", "message": f"Failed to serialize resume: {e}"}
+            return {"status": "error", "message": f"Failed to serialize updated resume: {e}"}
 
-        # Notify frontend safely
+        # Identify user safely
         try:
             user_id = thread_id.split(":", 1)[0]
         except IndexError:
             user_id = thread_id
+
+        # Notify frontend
         await send_patch_to_frontend(user_id, current_resume)
 
-        # Save undo stack
+        # Push to undo stack for revert functionality
         undo_stack_key = f"undo_stack:{thread_id}"
         r.lpush(undo_stack_key, json.dumps({
             "section": "positions_of_responsibility",
-            "index": index,
             "patches": patches
         }))
 
-        print(f"User ID: {user_id}, patches applied: {patches}")
+        print(f"User {user_id}: Applied patches to internship section successfully.")
 
-        return {
-            "status": "success",
-            "message": "Position of Responsibility updated successfully.",
-            "index": index
-        }
+        return {"status": "success", "message": "Internships section updated successfully."}
 
     except ValidationError as ve:
         return {"status": "error", "message": f"Validation error: {ve.errors()}"}
     except Exception as e:
         return {"status": "error", "message": f"Unexpected error: {str(e)}"}
-
 
 
 

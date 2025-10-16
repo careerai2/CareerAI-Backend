@@ -408,9 +408,24 @@ async def send_patches(
     tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig
 ):
-    """Apply JSON patches to the workex sub-state within SwarmResumeState."""
-    print("PATCH:", patches)
+    """
+    Apply JSON Patch (RFC 6902) operations to the academic Project section of the resume.
+
+    - Has full context of the current academic Project list.
+    - Automatically generates patches with correct list-level paths for each internship and its fields.
+    - Ensures all operations (add, replace, remove) are valid and aligned with the correct internship index.
+    - Updates backend storage and syncs changes to the frontend automatically.
+
+    Example patch:
+    [
+        {"op": "replace", "path": "/0/project_name", "value": "CareerAi"},
+        {"op": "replace", "path": "/1/duration", "value": "june 2022 - august 2022"},
+        {"op": "add", "path": "/-", "value": {"project_name": "OpenAI", "duration": "july 2023 - present"}}
+    ]
+    """
+    
     try:
+        print("PATCH:", patches)
         
         
         user_id = config["configurable"].get("user_id")
@@ -422,12 +437,10 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
         
-        index = getattr(state["acads"], "index", None)
-        
         
         tool_message = ToolMessage(
             content="Successfully transferred to query_generator_model",
-            name="handoff_to_acad_model",
+            name="handoff_to_query_generator_model",
             tool_call_id=tool_call_id,
         )
 
@@ -440,7 +453,6 @@ async def send_patches(
                 "acads": {
                     "retrived_info": "",
                     "patches": patches,
-                    "index": index,
                 },
             },
         )
@@ -458,74 +470,10 @@ async def send_patches(
 
 
 
-
-
-
-
-
-
-@tool
-async def update_index_and_focus(
-    index: int,
-    state: Annotated[SwarmResumeState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    config: RunnableConfig
-):
-    """Update the index and fetch the corresponding Academic Project entry on which focus is needed."""
-    try:
-        user_id = config["configurable"].get("user_id")
-        resume_id = config["configurable"].get("resume_id")
-
-        if not user_id or not resume_id:
-            raise ValueError("Missing user_id or resume_id in context.")
-
-        resume = state.get("resume_schema", {})
-        current_entries = getattr(resume, "academic_projects", [])
-
-        if len(current_entries) == 0:
-            raise ValueError("No academic project entries found in the resume. Add an entry first.")
-        if index < 0 or index >= len(current_entries):
-            raise IndexError("Index out of range for academic project entries.")
-
-        entry = current_entries[index]
-
-        update_acads_field(f"{user_id}:{resume_id}", "index", index)
-
-        tool_message = ToolMessage(
-            content="✅ Successfully updated the focus to the specified Academic Project entry.",
-            name="update_index_and_focus",
-            tool_call_id=tool_call_id,
-        )
-
-        return Command(
-            goto="acads_model",
-            update={
-                "messages": state["messages"] + [tool_message]
-            },
-        )
-
-    except Exception as e:
-        error_message = ToolMessage(
-            content=f"❌ Error updating focus: {str(e)}",
-            name="update_index_and_focus",
-            tool_call_id=tool_call_id,
-        )
-
-        return Command(
-            goto="acads_model",
-            update={
-                "messages": state["messages"] + [error_message]
-            },
-        )
-
-
-
 tools = [
     
-    position_of_responsibility_tool,
     reorder_Tool,reorder_responsibilities_tool,
     send_patches,
-    update_index_and_focus,
         #  get_compact_por_entries,
         #  get_por_entry_by_index,
          transfer_to_extra_curricular_agent, transfer_to_main_agent,
