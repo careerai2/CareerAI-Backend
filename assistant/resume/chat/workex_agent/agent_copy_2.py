@@ -9,10 +9,10 @@ from models.resume_model import Internship
 from .tools import tools
 from textwrap import dedent
 from utils.safe_trim_msg import safe_trim_messages
-from ..utils.common_tools import extract_json_from_response
+from ..utils.common_tools import extract_json_from_response,retrive_entry_from_resume,get_patch_field_and_index
 import assistant.resume.chat.token_count as token_count
 import json 
-from .functions import apply_patches,update_workex_field,new_query_pdf_knowledge_base
+from .functions import apply_patches,new_query_pdf_knowledge_base
 import re
 from .mappers import FIELD_MAPPING
 
@@ -28,6 +28,21 @@ llm_retriever = llm # tool can be added if needed
 llm_replier = llm # tool can be added if needed
 
 
+# ---------------------
+# INSTRUCTIONS
+
+instruction = {
+    "company_name":"Use official registered name only. | Avoid abbreviations unless globally recognized (e.g., IBM). | Apply Title Case. | Example: **Google LLC.**",
+    "location":"- Format: **City, Country.** | Example: *Bengaluru, India.*",
+    "duration":"- Format: **Month Year – Month Year** or **Month Year – Present.** | Example: *June 2020 – August 2022.*",
+    "designation":" Write the exact work title. | Capitalize each word. | Example: **Software Engineering Intern.**",
+    "project_name":"Use a concise, descriptive title. | Apply Title Case.  | Example: **Backend API Development.**",
+
+}
+
+
+
+
 
 # ---------------------------
 # 3. State
@@ -40,6 +55,7 @@ llm_replier = llm # tool can be added if needed
 # 4. Node Functions
 # ---------------------------
 
+MAX_TOKENS = 350
 
 # main model
 def workex_model(state: SwarmResumeState, config: RunnableConfig):
@@ -47,83 +63,53 @@ def workex_model(state: SwarmResumeState, config: RunnableConfig):
     
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
     current_entries = state.get("resume_schema", {}).get("work_experiences", [])
-    workex_state = state.get("workex", {})
     
-    tailored_current_entries = [
-    (idx, entry.get("company_name"))
-    for idx, entry in enumerate(current_entries)
-    ]
- 
-    # print("Internship State in Model Call:", workex_state)
-    
-    if isinstance(workex_state, dict):
-        workex_state = WorkexState.model_validate(workex_state)
-
-    index = getattr(workex_state, "index", None)
-    
-    print("Current Index in State:", index)
-    print("\n\ncurrent Entries:-", current_entries)
-    
-    
-    if index is not None and 0 <= index < len(current_entries):
-        entry = current_entries[index]
-        print(entry)
-    else:
-        entry = None
-        
-    # print("Current Index in State:", index)
-    # print("Tailored Entries:-", tailored_current_entries)
-    # print("Current Entry:-",entry)
-    
-    if current_entries and entry:
-        current_entry_msg = entry
-    elif current_entries and not entry:
-        current_entry_msg = f"No entry is currently focused."
-    else:
-        current_entry_msg = "No workex entries exist yet."
 
     
     system_prompt = SystemMessage(
     content=dedent(f"""
-    You refine work experience entries for a Resume Builder.
-    Continue naturally, improving clarity and alignment to {tailoring_keys}.
-    KEEP RESPONSES ≤125 WORDS. Don't reveal your role or message transfers.
+        You are a Human like Work Experience Assistant for a Resume Builder.
+        Your role: Help users add and modify their work experience section in the resume **(Current entries provided to You so start accordingly)** & also help refine and optimize the Work Experience section with precision, brevity, and tailoring.
 
-    **Workflow:**
-    • Ask one question at a time; confirm before deletions/overwrites.
-    • **Apply changes immediately via `send_patches`** for real-time updates.
-    • No duplicate company names.
-    • Each work experience may have multiple projects.
-    • **Projects:** Ask first if user wants to add a project. Only after confirmation, collect project_name, project_description, and bullets.
+        --- Workflow ---
+        • Ask one clear, single-step question at a time.
+        • **Always immediately apply any user-provided information using send_patches. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
+        • Use tools as needed, refer their description to know what they do.
+        • **While generating patches for project description bullets, remember that description_bullets is an array of strings like ["", ""] so create your patches accordingly.**
+        • Always apply patches directly to the entire work experience section (list) — not individual sub-fields — unless a specific project update is needed.
+        • Keep outputs concise (~60–70 words max).
+        • For each work experience, aim to get: the user’s role, the work done or project details, outcomes, and their impact.
+        • DO NOT ask about challenges, learnings, or feelings.
+        • The send_patches first will validate your generated patches; if patches are not fine, it will respond with an error, so you should retry generating correct patches or ask the user for clarification before proceeding.
+        • If you are confident about new updates, you can apply them directly without asking for confirmation.
 
-    **Tools:**
-    • `send_patches`: JSON Patch (RFC 6902). Example:
-      [{{"op": "replace", "path": "/company_name", "value": "Google"}},
-       {{"op": "add", "path": "/projects/-", "value": {{"project_name": "Tool", "description_bullets": ["Improved speed 30%"]}}}}]
-    • `update_index_and_focus`: Switch focus.
-    • `get_full_workex_entries`: Fetch older entries.
+        --- Schema ---
+        {{
+            company_name,
+            location,
+            duration,
+            designation,
+            projects: [{{project_name,description_bullets[]}}]
+        }}
 
-    **Schema:**
-    WorkExperience: {{company_name, company_description, location, designation, designation_description, duration, projects[]}}
-    Project: {{project_name, project_description, description_bullets[]}}
+        --- Current Entries (It is visible to Human) ---
+        Always use the following as reference when updating work experiences:
+        {current_entries}
 
-    **Current Entries:** {tailored_current_entries if tailored_current_entries else "None"}
-    **Focus:** {current_entry_msg}
+        --- Guidelines ---
+        Always use correct indexes for the work experience and its projects.
+        Focus on clarity, brevity, and alignment with {tailoring_keys}.
+         • Resume updates are **auto-previewed** — **never show raw code or JSON changes**.  
+           - The **current entries are already visible to the user**, so you should **not restate them** and must keep that in mind when asking questions or making changes.
 
-    **Rules:**
-    • Be concise, professional, action-oriented.
-    • Add bullets to `/projects/N/description_bullets/-` (N = project index).
-    • Chat naturally.
-    """)
-)
+    """))
+
 
 
 
     
 
-
-
-    messages = safe_trim_messages(state["messages"], max_tokens=256)
+    messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS )
     # messages = safe_trim_messages(state["messages"], max_tokens=512)
     response = llm_workEx.invoke([system_prompt] + messages, config)
     
@@ -133,8 +119,6 @@ def workex_model(state: SwarmResumeState, config: RunnableConfig):
     token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
     token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
-    token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-    token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
     
     if not getattr(state["messages"][-1:], "tool_calls", None):
 
@@ -143,10 +127,7 @@ def workex_model(state: SwarmResumeState, config: RunnableConfig):
         print("\nTurn Total Input Tokens:", token_count.total_turn_Input_Tokens)
         print("Turn Total Output Tokens:", token_count.total_turn_Output_Tokens)
         print("\n\n")
-        
-        token_count.total_turn_Input_Tokens = 0
-        token_count.total_turn_Output_Tokens = 0
-
+  
     print("Workex_model response:", response.content)
     print("Workex node Token Usage:", response.usage_metadata)
     
@@ -224,55 +205,59 @@ def retriever_node(state: SwarmResumeState, config: RunnableConfig):
             state["workex"]["retrieved_info"] = []
             return {"next_node": "builder_model"}
 
-       
+   
+        # 🔄 Loop over each query + patch
+        unique_fields = set()
+        for patch in patches:
+            
+            if patch.get("op") in ("remove", "delete"):
+                continue
+            _, patch_field, _ = get_patch_field_and_index(patch.get("path", ""))
+            unique_fields.add(patch_field)
+
+        print(f"\n🧠 Unique fields to fetch: {unique_fields}\n")
 
         all_results = []
+        section = "Work Experience Document Formatting Guidelines"
 
-        # 🔄 Loop over each query + patch
-        for i, patch in enumerate(patches):
-            section = "Work Experience Document Formatting Guidelines"
-            patch_field = patch.get("path", "").lstrip("/") 
-            patch_field = patch_field.split("/", 1)[0]
-            kb_field = FIELD_MAPPING.get(patch_field) 
-            
-            
-            print(f"\n🔍 Running retriever for query {i+1}: on field {patch_field} mapped to KB field {kb_field}")
-        
-            
-            if patch_field == "description_Bullets":
-                retrieved_info = new_query_pdf_knowledge_base(
-                query_text=str(query),   # now it's a string
-                role=["workex"],
-                section=section,
-                subsection="Action Verbs (to use in description bullets)",
-                field=kb_field,
-                n_results=5,
-                debug=False
-            )
-                all_results.append(f"[Action Verbs] => {retrieved_info}")
+        for field in unique_fields:
+            kb_field = FIELD_MAPPING.get(field)
+            print(f"Fetching KB info for field: {field} -> KB field: {kb_field}")
 
-            # Extract actual query text from patch dict
-            patch_query = patch.get("value", "")  
+            if field == "responsibilities":
+                # Fetch action verbs
+                action_verbs_info = new_query_pdf_knowledge_base(
+                    query_text=str(query),
+                    role=["por"],
+                    section=section,
+                    subsection="Action Verbs (to use in description bullets)",
+                    field=kb_field,
+                    n_results=5,
+                    debug=False
+                )
+                all_results.append(f"[Action Verbs] => {action_verbs_info}")
 
-            print(f"\n🔍 Running retriever for query {i+1}: {patch_query}")
+                # Fetch schema rules
+                schema_info = new_query_pdf_knowledge_base(
+                    query_text=str(query),
+                    role=["por"],
+                    section=section,
+                    subsection="Schema Requirements & Formatting Rules",
+                    field=kb_field,
+                    n_results=5,
+                    debug=False
+                )
+                all_results.append(f"[{field}] {schema_info}")
 
-            print
-
-            retrieved_info = new_query_pdf_knowledge_base(
-                query_text=str(query),   # now it's a string
-                role=["workex"],
-                section=section,
-                subsection="Schema Requirements & Formatting Rules",
-                field=kb_field,
-                n_results=5,
-                debug=False
-            )
-
-            print(f"Retriever returned {retrieved_info} results for patch {i+1}.\n\n")
+            else:
+                retrieved_info = instruction.get(field, '')
+                all_results.append(f"[{field}] {retrieved_info}")
+                
 
             all_results.append(f"[{patch_field}] {retrieved_info}")
 
         all_results = "\n".join(all_results)
+        
         
         print("All retrieved info:", all_results,"Type of All results:-",type(all_results))
         # Save everything back
@@ -300,9 +285,9 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         patches = state.get("workex", {}).get("patches", [])
         # print("Patches in Builder :-", patches)
         
-        index = state.get("workex", {}).get("index")
-        current_entries = state.get("resume_schema", {}).get("workexs", [])
-        entry = current_entries[index] if index is not None and 0 <= index < len(current_entries) else "New Entry"
+        # index = state.get("workex", {}).get("index")
+        # current_entries = state.get("resume_schema", {}).get("workexs", [])
+        # entry = current_entries[index] if index is not None and 0 <= index < len(current_entries) else "New Entry"
 
         # print("Current Entry in Builder:", entry)
 
@@ -311,30 +296,25 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
             state["messages"].append(SystemMessage(content="No retrieved info available, skipping building."))
             return
 
-        prompt = dedent(f"""You are refining workex resume entries using JSON Patches.
+        prompt = f"""
+        You are a professional Work Experiences resume builder.
 
-            ***INSTRUCTIONS:***
-            • Respond in **valid JSON array only** (list of patches).
-            • Input is the current entry + current patches + retrieved info.
-            • Your goal: refine/improve the **values** of the patches using the retrieved info.
-            • Keep good fields unchanged (don’t patch unnecessarily).
-            • **Do NOT change the 'op' or 'path' of any patch.** Only the 'value' can be updated.
-            • Use JSON Patch format strictly:
-            - op: must remain exactly as in the input patch ("add", "replace", "remove")
-            - path: must remain exactly as in the input patch
-            - value: update only if refinement is necessary
+        ***INSTRUCTIONS:***
+        1. Treat the incoming JSON Patch values as the **source of truth**. Do NOT change their meaning. It will be applied directly to the current entries.
+        2. Your task is to **refine formatting and style** only before it gets applied. Based on the retrieved guidelines, improve phrasing, clarity, and impact of the patch values, but do not change their truth.
+        3. Do NOT replace, remove, or add values outside the incoming patch.
+        4. Do NOT change patch paths or operations.
+        5. Return strictly a **valid JSON Patch array** (RFC6902). No explanations or extra text.
 
-            --- Current Entry on which the new patches to be applied ---
-            {json.dumps(entry, indent=2)}
+        ***GUIDELINES REFERENCE:***
+        {retrieved_info}
 
-            --- Current Patches ---
-            {json.dumps(patches, indent=2)}
 
-            --- Retrieved Info ---
-            {retrieved_info}
-            """)
+        ***INCOMING PATCHES:***
+        {patches}
+        """
             
-        # messages = safe_trim_messages(state["messages"], max_tokens=256)
+        # messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS )
         # last_human_msg = next((msg for msg in reversed(messages) if isinstance(msg, HumanMessage)), None)
 
 
@@ -343,9 +323,6 @@ def builder_model(state: SwarmResumeState, config: RunnableConfig):
         token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
         token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
-        token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-        token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
-        # Extract refined patches from LLM output
         refined_patches = extract_json_from_response(response.content)
 
         print("Builder produced refined patches:", refined_patches)
@@ -383,10 +360,6 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         if result and result.get("status") == "success":
             print("Entry state updated successfully in Redis.")
             state["workex"]["save_node_response"] = f"patches applied successfully on fields {', '.join(patch_field)}."
-            if "index" in result:
-                state["workex"]["index"] = result.get("index", index)  # Update index if changed
-            state["workex"]["patches"] = []  # Clear patches after successful application
-            # print("Internship State after save_entry_state:", state.get("workex", {}))
             
             print("\n\n\n\n")
     except Exception as e:
@@ -395,50 +368,40 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
     
 
 # End Node (Runs after save_entry_node)
-def End_node(state: SwarmResumeState, config: RunnableConfig):
+async def End_node(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for workex assistant with immediate state updates."""
 
     try:
+        # thread_id = config["configurable"]["thread_id"]
         save_node_response = state.get("workex", {}).get("save_node_response", None)
         
         print("End Node - save_node_response:", save_node_response)
+        
+        # updated_workexs = await retrive_entry_from_resume(thread_id,"work_experiences")
 
-        current_entries = state.get("resume_schema", {}).get("work_experiences", [])
-        workex_state = state.get("workex", {})
-        
-    
-        # print("Internship State in Model Call:", workex_state)
-        
-        if isinstance(workex_state, dict):
-            workex_state = WorkexState.model_validate(workex_state)
-
-        index = getattr(workex_state, "index", None)
-        
-        
-        
-        if index is not None and 0 <= index < len(current_entries):
-            entry = current_entries[index]
-        else:
-            entry = None
-                
-                
+       
         system_prompt = SystemMessage(
             content=dedent(f"""
-                You are the Workex Assistant for a Resume Builder.
+            You are a tail of a human-like Worex Assistant for a Resume Builder.
 
-                The user's workex info was just saved on the focused entry. Last node message: {save_node_response if save_node_response else ""}
-                
-                -- CURRENT ENTRY IN FOCUS --
-                {entry if entry else "No entry selected."}
+            Focus solely on engaging the user in a supportive, professional, and encouraging manner. 
+            Do not repeat, edit, or reference any work experience entries, projects, or technical details.
 
-                Reply briefly and warmly. Only ask for more info if needed. Occasionally ask general workex questions to keep the chat engaging.
-                
-                YOU MUST REPLY A FRIENDLY MSG IN A CONTINUATION OF THE CHAT AND FLOW. 
-            """)
+            Last node message: {save_node_response if save_node_response else "None"}
+
+            --- Guidelines for this node ---
+            • Be warm, concise, and positive.
+            • Only request more details if absolutely necessary.
+            • Occasionally ask general, open-ended questions about work experiences or professional growth to keep the conversation natural.
+            • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
+            • Your primary goal is to motivate and encourage the user to continue improving their resume and highlight impactful experiences.
+        """)
         )
 
+
         # # Include last 3 messages for context (or fewer if less than 3)
-        messages = state["messages"]
+        
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
         
         response = llm_replier.invoke([system_prompt] + messages, config)
         
@@ -451,9 +414,6 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
         token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
-        token_count.total_turn_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
-        token_count.total_turn_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
-        
         print("\n\n\n")
         
         print("End Node Response", response.content)
@@ -461,14 +421,7 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         
         print("\n\n\n\n")
         
-        print("\nTurn Total Input Tokens:", token_count.total_turn_Input_Tokens)
-        print("Turn Total Output Tokens:", token_count.total_turn_Output_Tokens)
-        print("\n\n")
-        
-        token_count.total_turn_Input_Tokens = 0
-        token_count.total_turn_Output_Tokens = 0
-    
-
+     
         return {"messages": [response]}
     except Exception as e:
         

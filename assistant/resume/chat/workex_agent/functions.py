@@ -51,113 +51,75 @@ def update_workex_field(thread_id: str, field: Literal["index", "retrieved_info"
     
 
 
-
 async def apply_patches(thread_id: str, patches: list[dict]):
     """
-    Adds or updates a Work Experience (internship/job) in the resume and syncs with Redis + frontend.
-    Robust version with edge case handling, consistent with other sections.
+    Applies JSON patches to the entire internship section of the resume.
+    Handles creation, replacement, or removal of work_experiences at any index.
+    Syncs updated resume to Redis and frontend.
     """
     try:
-        # Load workex state from Redis
-        workex_state_raw = r.get(f"state:{thread_id}:workex")
-        index = None
-        if workex_state_raw:
-            try:
-                workex_state = json.loads(workex_state_raw)
-                index = workex_state.get("index")
-                if index is not None:
-                    index = int(index)
-            except json.JSONDecodeError:
-                print("Corrupted Work Experience state in Redis. Resetting.")
-                workex_state = {}
-                index = None
-        else:
-            workex_state = {}
 
         # Early exit if no patches
         if not patches:
             return {"status": "success", "message": "No patches to apply."}
 
-        # Load resume from Redis
+        # Load current resume from Redis
         current_resume_raw = r.get(f"resume:{thread_id}")
         if not current_resume_raw:
-            return {"status": "error", "message": "Resume not found."}
+            return {"status": "error", "message": "Resume not found in Redis."}
 
         try:
             current_resume = json.loads(current_resume_raw)
         except json.JSONDecodeError:
             return {"status": "error", "message": "Corrupted resume data in Redis."}
 
-        # Get existing work experiences list
+        # Ensure work_experiences section exists
         current_workex = current_resume.get("work_experiences", [])
-        current_company_names = [
-            work.get("company_name", "").lower().strip()
-            for work in current_workex if work.get("company_name")
-        ]
+        if not isinstance(current_workex, list):
+            current_workex = []
 
-        # Check if any patch adds/replaces a new company
-        is_new_company_patch = any(
-            patch.get("path") == "/company_name"
-            and patch.get("op") in ("add", "replace")
-            and patch.get("value", "").lower().strip() not in current_company_names
-            for patch in patches
-        )
-        if is_new_company_patch:
-            index = None  # Force new work experience creation
+        # ✅ Apply patches to entire work_experiences list
+        try:
+            jsonpatch.apply_patch(current_workex, patches, in_place=True)
+            print(f"Applied patch list to work_experiences: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            return {"status": "error", "message": f"Failed to apply patch list: {e}"}
 
-        # Apply patches to existing or new work experience
-        if index is not None and 0 <= index < len(current_workex):
-            try:
-                jsonpatch.apply_patch(current_workex[index], patches, in_place=True)
-                print(f"Updated Work Experience at index {index}")
-            except jsonpatch.JsonPatchException as e:
-                return {"status": "error", "message": f"Failed to apply patch: {e}"}
-        else:
-            # Add new work experience
-            new_workex = WorkExperience().model_dump()
-            try:
-                jsonpatch.apply_patch(new_workex, patches, in_place=True)
-            except jsonpatch.JsonPatchException as e:
-                return {"status": "error", "message": f"Failed to apply patch to new Work Experience: {e}"}
-            current_workex.append(new_workex)
-            index = len(current_workex) - 1
-            update_workex_field(thread_id, "index", index)
-            print(f"Added new Work Experience at index {index}")
-
-        # Save back to Redis
+        # Save updated work_experiences back to resume
         current_resume["work_experiences"] = current_workex
+
+        # Save updated resume to Redis
         try:
             r.set(f"resume:{thread_id}", json.dumps(current_resume))
         except TypeError as e:
-            return {"status": "error", "message": f"Failed to serialize resume: {e}"}
+            return {"status": "error", "message": f"Failed to serialize updated resume: {e}"}
 
-        # Notify frontend safely
+        # Identify user safely
         try:
             user_id = thread_id.split(":", 1)[0]
         except IndexError:
             user_id = thread_id
+
+        # Notify frontend
         await send_patch_to_frontend(user_id, current_resume)
 
-        # Save undo stack
+        # Push to undo stack for revert functionality
         undo_stack_key = f"undo_stack:{thread_id}"
         r.lpush(undo_stack_key, json.dumps({
             "section": "work_experiences",
-            "index": index,
             "patches": patches
         }))
 
-        print(f"User ID: {user_id}, patches applied: {patches}")
+        print(f"User {user_id}: Applied patches to internship section successfully.")
 
-        return {
-            "status": "success",
-            "message": "Work Experience updated successfully.",
-            "index": index
-        }
+        return {"status": "success", "message": "Internships section updated successfully."}
 
     except ValidationError as ve:
         return {"status": "error", "message": f"Validation error: {ve.errors()}"}
     except Exception as e:
         return {"status": "error", "message": f"Unexpected error: {str(e)}"}
+
+
 
 
 

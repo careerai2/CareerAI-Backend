@@ -223,6 +223,10 @@ async def retrive_entry_from_resume(
 
         # Access the section safely
         section_entries = resume.get(section, [])
+        
+        if not entryIndex:
+            return section_entries
+        
         if entryIndex >= len(section_entries):
             print(f"Entry index {entryIndex} out of range for section {section}")
             return None

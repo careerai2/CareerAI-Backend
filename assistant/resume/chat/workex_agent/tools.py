@@ -653,16 +653,32 @@ from ..llm_model import SwarmResumeState
 
 @tool
 async def send_patches(
-    patches: list[dict],   # <-- instead of entry
+    patches: list[dict],
     state: Annotated[SwarmResumeState, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
     config: RunnableConfig
 ):
-    """Apply JSON patches to the workex sub-state within SwarmResumeState."""
-    print("PATCH:", patches)
+    """
+    Apply JSON Patch (RFC 6902) operations to the internships section of the resume.
+
+    - Has full context of the current internships list.
+    - Automatically generates patches with correct list-level paths for each internship and its fields.
+    - Ensures all operations (add, replace, remove) are valid and aligned with the correct internship index.
+    - Updates backend storage and syncs changes to the frontend automatically.
+
+    Example patch:
+    [
+        {"op": "replace", "path": "/0/company_name", "value": "CareerAi"},
+        {"op": "replace", "path": "/1/role", "value": "Software Intern"},
+        {"op": "add", "path": "/-", "value": {"company_name": "OpenAI", "role": "ML Intern"}}
+    ]
+    """
+
     try:
-        
-        
+        print("PATCH:", patches)
+
+
+        # Extract config context
         user_id = config["configurable"].get("user_id")
         resume_id = config["configurable"].get("resume_id")
 
@@ -671,86 +687,41 @@ async def send_patches(
 
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
-        
-        index = getattr(state["workex"], "index", None)
-        
-        
+
+
         tool_message = ToolMessage(
             content="Successfully transferred to query_generator_model",
-            name="handoff_to_workex_model",
+            name="send_patches_success",
             tool_call_id=tool_call_id,
         )
 
-        
-  
+        # ✅ Success structure
         return Command(
             goto="query_generator_model",
             update={
                 "messages": [tool_message],
                 "workex": {
-                    "retrived_info": "",
                     "patches": patches,
-                    "index": index,
-                },
+                }
             },
         )
 
     except Exception as e:
-        print(f"❌ Error applying Workex entry patches: {e}")
+        print(f"❌ Error applying internship entry patches: {e}")
+
         fallback_msg = ToolMessage(
-            content=f"Error applying patches internally: {e}",
-            name="error_message",
+            content=f"Error applying patches due to the error: {e}",
+            name="send_patches_error_message",
             tool_call_id=tool_call_id,
         )
-        return {"messages": [fallback_msg]}
 
-
-
-@tool
-async def update_index_and_focus(
-    index: int,
-    state: Annotated[SwarmResumeState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    config: RunnableConfig
-):
-    """Update the index and fetch the corresponding internship entry on which focus is needed."""
-    try:
-        user_id = config["configurable"].get("user_id")
-        resume_id = config["configurable"].get("resume_id")
-
-        if not user_id or not resume_id:
-            raise ValueError("Missing user_id or resume_id in context.")
-
-        resume= state.get("resume_schema", {})
-        current_entries = getattr(resume, "work_experiences", [])
-
-        if len(current_entries) == 0:
-            raise ValueError("No internship entries found in the resume.Add an entry first.")
-        if index < 0 or index >= len(current_entries):
-            raise IndexError("Index out of range for internship entries.")
-        
-        entry = current_entries[index]
-            
-        update_workex_field(f"""{user_id}:{resume_id}""", "index", index)
-        
-        tool_message = ToolMessage(
-            content="Successfully updated the focus to the specified internship entry.",
-            name="update_index_and_focus",
-            tool_call_id=tool_call_id,
-        )
-        
-
+        # ❌ Do not raise ToolException if you want router to handle it
         return Command(
             goto="workex_model",
             update={
-                "messages": state["messages"] + [tool_message]
+                "messages": [fallback_msg],
             },
         )
-    except Exception as e:
-        print(f"❌ Error getting entry by company name: {e}")
-        return {"status": "error", "message": str(e)}
-
-
 
 
 
@@ -758,10 +729,10 @@ async def update_index_and_focus(
 tools = [
     # workex_Tool,
         #  use_knowledge_base,,
-        send_patches, update_index_and_focus,
-         reorder_tool,
-         reorder_projects_tool,                     
-         reorder_project_description_bullets_tool, 
+        send_patches,
+        #  reorder_tool,
+        #  reorder_projects_tool,                     
+        #  reorder_project_description_bullets_tool, 
         #  get_compact_work_experience_entries,
         #  get_work_experience_entry_by_index,
          transfer_to_extra_curricular_agent, transfer_to_por_agent,transfer_to_acads_agent,

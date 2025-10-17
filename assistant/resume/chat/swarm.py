@@ -13,7 +13,7 @@ from langgraph_swarm import create_swarm
 # from .internship_agent.agent_copy_2_copy import internship_assistant
 from .internship_agent.agent_copy_2 import internship_assistant
 from .acads_agent.agent_2 import acads_assistant
-from .workex_agent.agent_copy_2_copy import workex_assistant
+from .workex_agent.agent_copy_2 import workex_assistant
 from .position_of_responsibility_agent.agent_2 import position_of_responsibility_assistant
 
 
@@ -175,6 +175,7 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
             ],
             "resume_schema": resume,
             "internship": get_graph_state(user_id, resume_id, "internship"),
+            "workex": get_graph_state(user_id, resume_id, "workex"),
             "por": get_graph_state(user_id, resume_id, "por"),
             "acads": get_graph_state(user_id, resume_id, "acads"),
         },
