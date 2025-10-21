@@ -54,18 +54,15 @@ def get_graph_state(user_id: str, resume_id: str, key: str) -> dict:
         redis_key = f"state:{user_id}:{resume_id}:{key}"
         data = r.get(redis_key)
 
-        if not data:
-            default_state = {
-                "retrieved_info": "None",
-                "generated_query": "",
-                "save_node_response": "",
-                "pathches": []
-            }
-            r.set(redis_key, json.dumps(default_state))
-            return default_state
-
-        # data is already a str
-        return json.loads(data)
+        default_state = {
+        "error_msg": "None",
+        "retrieved_info": "None",
+        "generated_query": "",
+        "save_node_response": "",
+        "pathches": []
+        }
+           
+        return default_state
 
     except Exception as e:
         print(f"Error fetching graph state: {e}")
@@ -364,3 +361,43 @@ def get_patch_field_and_index(patch_path: str):
     
     # Path without index
     return None, parts[-1], append
+
+
+
+
+
+def check_patch_correctness(patch_list: List[Dict], list_length: int) -> bool:
+    valid_ops = {"add", "replace", "remove"}
+    
+    for patch in patch_list:
+        # Check required keys
+        if not all(k in patch for k in ("op", "path", "value")):
+            raise ValueError(f"Patch is missing required fields: {patch} , All patches: {patch_list}")
+        
+        # Validate op
+        if patch["op"] not in valid_ops:
+            raise ValueError(f"Invalid op value: {patch['op']}, All patches: {patch_list}")
+        
+        path = patch["path"]
+        
+        # Validate path
+        if path != "/-":
+            import re
+            match = re.match(r"^/(\d+)(/.*)?$", path)
+            if not match:
+                raise ValueError(f"Invalid path format: {path}")
+            index = int(match.group(1))
+            if index >= list_length:
+                raise IndexError(f"Index {index} is out of bounds for list of length {list_length},in patch {patch} , All Patches: {patch_list}")
+    
+    return True
+
+
+def get_unique_indices(patch_list: List[Dict]) -> List[int]:
+    indices = set()
+    import re
+    for patch in patch_list:
+        match = re.match(r"^/(\d+)(/.*)?$", patch["path"])
+        if match:
+            indices.add(int(match.group(1)))
+    return list(indices)

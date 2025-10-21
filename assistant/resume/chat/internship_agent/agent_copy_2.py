@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from ..llm_model import llm,SwarmResumeState,InternshipState
 from models.resume_model import Internship
 # from .state import SwarmResumeState
-from .tools import tools, fetch_internship_info,transfer_tools
+from .tools import tools, fetch_internship_info,transfer_tools,send_patches
 from textwrap import dedent
 from utils.safe_trim_msg import safe_trim_messages
 from ..utils.common_tools import extract_json_from_response,get_patch_field_and_index
@@ -23,6 +23,7 @@ from .mappers import FIELD_MAPPING
 
 llm_internship = llm.bind_tools([*tools, *transfer_tools])
 # llm_internship = llm  # tool can be added if needed
+llm_error_handler = llm.bind_tools(tools)  # tool can be added if needed
 llm_builder = llm  # tool can be added if needed
 llm_retriever = llm # tool can be added if needed
 
@@ -41,12 +42,46 @@ instruction = {
 MAX_TOKENS = 350
 
 # main model
-def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
+async def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for internship assistant with immediate state updates."""
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
     current_entries = state.get("resume_schema", {}).get("internships", [])
     
-   
+    # save_node_response = state.get("internship", {}).get("save_node_response", None)
+    
+    error_msg = state.get("internship", {}).get("error_msg", None)
+    
+    if error_msg:
+        print(f"⚠️ Internship patch failed with error: {error_msg}")
+        
+        # Reset error so it doesn’t loop forever
+        state["internship"]["error_msg"] = None
+
+        # Give LLM a short controlled prompt to reply politely
+        recovery_prompt = f"""
+            The last internship patch operation failed with: '{error_msg}'.
+            You have access to all tools, including send_patches.
+
+            Rules for your response:
+            1. Try to fix the issue automatically using the available tools (e.g., retry sending the patch).
+            2. If automatic recovery is not possible, politely inform the user about the failure without revealing internal or technical details.
+            3. Do NOT mention your identity, the identity of other agents, or that you are an AI/model/assistant.
+            4. If a transfer or handoff is needed, perform it silently; do not notify or ask the user.
+            5. Keep the response concise, polite, and human-like.
+            """
+
+        
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
+        # Make it human-like using the same LLM pipeline
+        response = await llm_internship.ainvoke([recovery_prompt], config)
+        print("internship_model (error recovery) response:", response.content)
+
+        return {
+            "messages": [response],
+            "internship": {
+                    "error_msg": None,
+                }
+            }
  
 
     print("Current Entries in Internship Model:", current_entries)
@@ -55,25 +90,24 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
     content=dedent(f"""
         You are a Human like Internship Assistant for a Resume Builder.
         Your role: Help users add and modify their internship section in the resume **(Current entries provided to You so start accordingly)** & also help in refine and optimize the Internship section with precision, brevity, and tailoring.
-
+        
         --- Workflow ---
         • Ask one clear, single-step question at a time.
-        • **Always immediately apply any user-provided information using **send_patches**. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
+        • Every internship field provided must be applied **immediately**. Generate and send a patch for it right away. Never wait for other fields—each piece of information is actionable on its own.
+        • If unclear about add or update just confirm with user.Don't refer anything by index use company name instead.    
         • Use tools as needed, refer their description to know what they do.
+        • Never reveal your identity or the identity of any other agent. Do not mention being an AI, model, or assistant. If a transfer or handoff is required, perform it silently without notifying or asking the user. Always behave as a human assistant..
         • **While generating patches for internship bullets, keep in mind that the bullets is actually an array of strings like ["",""] so create your patches accordingly*
         • Always apply patches directly to the entire internship section (list) — not individual entries — .
-        • Keep outputs concise (~60–70 words max).
+        • Keep your response to user concise (~60–70 words max) .
         • For each internship, aim to get 3 pieces of information: what the user did, the outcome, and its impact.
         • DO NOT ask about challenges, learnings, or feelings.
-        • The send patches first will validate ur generated patches,if patches are not fine it will respond you with error so you should have to try again .
-        • If send_patches returns an error, you must either retry generating correct patches or respond to the user asking for clarification before proceeding.
         • Also if u are sure about the new things/updates you can add those directly without asking for confirmation from user.
 
         --- Schema ---
         {{company_name,location, designation,duration, internship_work_description_bullets[]}}
 
-        --- Current Entries (It is visible to Human) ---
-        Always use the following as reference when updating internships:
+        --- Current Entries (It is visible to Human and your modification will also reflect here ) ---
         {current_entries}
 
         --- Guidelines ---
@@ -84,65 +118,14 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
 
     """))
     
-    # system_prompt = SystemMessage(
-    #     content = dedent(f"""
-    #         ### SYSTEM ROLE
-    #         You are a **Human-like Internship Assistant** for a **Resume Builder**.
-
-    #         ### ROLE DESCRIPTION
-    #         Help users **add and modify** their internship section in the resume and also **refine and optimize** the Internship section with **precision, brevity, and tailoring**.
-
-    #         ---
-
-    #         ### WORKFLOW
-    #         • Ask **one clear, single-step question** at a time.  
-    #         • **Always immediately apply any user-provided information using `send_patches`.**  
-    #         - Do **not** wait for confirmation, **except when deleting or overwriting existing entries**.  
-    #         - This **must never be skipped**.  
-    #         • Use tools as needed; refer to their descriptions to know what they do.  
-    #         • **When generating patches for internship bullets:**  
-    #         - The `bullets` field is an **array of strings**, e.g. `["", ""]`.  
-    #         - Create your patches accordingly.  
-    #         • **Always apply patches directly to the entire internship section (list)** — not to individual entries.  
-    #         • Keep outputs **concise (~60–70 words max)**.  
-    #         • For each internship, ensure you get **three key details:**  
-    #         1. What the user did  2. The outcome  3. Its impact  
-    #         • Do **not** ask about challenges, learnings, or feelings.  
-    #         • The `send_patches` function **will validate your generated patches**.  
-    #         - If validation fails, you **must retry immediately**.  
-    #         • If you are sure about new updates, **apply them directly** without asking for confirmation.
-
-    #         ---
-
-    #         ### SCHEMA
-    #         {{company_name,location,designation,duration,internship_work_description_bullets[]}}
-
-    #         ---
-
-    #         ### CURRENT ENTRIES (Compact)
-    #         Always use the following as reference when updating internships:
-    #         {current_entries}
-
-    #         ---
-
-    #         ### GUIDELINES
-    #         • Use **correct indexes** for each internship.  
-    #         • Focus on **clarity, brevity, and alignment** with `{tailoring_keys}`.  
-    #         • Resume updates are **auto-previewed** — **never show raw code or JSON changes**.  
-    #             - This means the **current entries are already visible to the user**, so you should **not restate them** and must keep that in mind when asking questions or making changes.
-    #         """
-    #         )
-    #     )
-
-
-  
+    
 
 
     try:
  
         messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
         # messages = safe_trim_messages(state["messages"], max_tokens=512)
-        response = llm_internship.invoke([system_prompt] + messages, config)
+        response =  llm_internship.invoke([system_prompt] + messages, config)
         
         # print("Internship Response:", response.content)
 
@@ -156,12 +139,6 @@ def call_internship_model(state: SwarmResumeState, config: RunnableConfig):
         if not getattr(state["messages"][-1:], "tool_calls", None):
 
             print("\n\n\n")
-            
-       
-        
-            
-            token_count.total_turn_Input_Tokens = 0
-            token_count.total_turn_Output_Tokens = 0
 
         print("internship_model response:", response.content)
         print("Internship Token Usage:", response.usage_metadata)
@@ -449,8 +426,19 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
             state["internship"]["save_node_response"] = f"patches applied successfully on fields {', '.join(patch_field)}."
             
             state["internship"]["patches"] = []  # Clear patches after successful application
-            # print("Internship State after save_entry_state:", state.get("internship", {}))
+            return{
+                "next_node": "end_node",
+            }
+        elif result and result.get("status") == "error":
+            error_msg = result.get("message", "Unknown error during patch application.")
             
+            return {
+                "messages": [AIMessage(content=f"Failed to apply patches: {error_msg},Pathces: {patches}")],
+                "next_node": "internship_model",
+                "internship": {
+                    "error_msg": error_msg,
+                }
+            }
             print("\n\n\n\n")
     except Exception as e:
         print("Error in save_entry_state:", e)
@@ -460,12 +448,10 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
     
     
     
-    
-    
-    
+
 
 # End Node (Runs after save_entry_node)
-def End_node(state: SwarmResumeState, config: RunnableConfig):
+async def End_node(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for internship assistant with immediate state updates."""
 
     try:
@@ -515,6 +501,7 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
 
             --- Guidelines for this node ---
             • Be warm, concise, and positive.
+            • DO NOT ask about rewards, challenges, learnings, or feelings.
             • Only request more details if absolutely necessary.
             • Occasionally ask general, open-ended questions about internships to keep the conversation natural.
             • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
@@ -586,6 +573,16 @@ def internship_model_router(state: SwarmResumeState):
     return END
 
 
+def save_node_router(state: SwarmResumeState):
+    error_msg = state.get("internship", {}).get("error_msg", [])
+    
+    if error_msg:
+        return "internship_model"
+    
+    
+    return "end_node"
+
+
 
 
 
@@ -635,6 +632,17 @@ workflow.add_conditional_edges(
     }
 )
 
+# Conditional routing
+workflow.add_conditional_edges(
+    "save_entry_state",
+    save_node_router,
+    {
+        "internship_model": "internship_model",
+        "end_node": "end_node",   
+        END: END
+    }
+)
+
 
 
 
@@ -643,7 +651,7 @@ workflow.add_conditional_edges(
 workflow.add_edge("query_generator_model", "retriever_node")  # return to retriever
 workflow.add_edge("retriever_node","builder_model")   # return to builder
 workflow.add_edge("builder_model", "save_entry_state")
-workflow.add_edge("save_entry_state", "end_node")
+# workflow.add_edge("save_entry_state", "end_node")
 workflow.add_edge("end_node",END)
 
 

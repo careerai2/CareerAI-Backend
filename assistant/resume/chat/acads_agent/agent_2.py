@@ -45,7 +45,7 @@ def call_acads_model(state: SwarmResumeState, config: RunnableConfig):
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
     current_entries = state.get("resume_schema", {}).get("academic_projects", [])
     
-   
+  
     
     system_prompt = SystemMessage(
     content=dedent(f"""
@@ -56,17 +56,18 @@ def call_acads_model(state: SwarmResumeState, config: RunnableConfig):
         • Ask one clear, single-step question at a time.
         • **Always immediately apply any user-provided information using `send_patches`,because you may get out of **context** so **make changes**. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
         • Use tools as needed; refer to their descriptions to know what they do.
+        • Never reveal your identity or the identity of any other agent. Do not mention being an AI, model, or assistant. If a transfer or handoff is required, perform it silently without notifying or asking the user. Always behave as a human assistant..
         • **While generating patches for project bullets, keep in mind that `description_bullets` is actually an array of strings like ["", ""] — so create your patches accordingly.**
         • Always apply patches directly to the entire `academic_projects` section (list) — not individual entries.
         • Keep outputs concise (~60–70 words max).
         • For each project, aim to get 3 pieces of information: what the user built, how they built it (tools, methods, or approach), and what result or functionality was achieved.
-        • DO NOT ask about challenges, learnings, or feelings.
+        • DO NOT ask about rewards, challenges, learnings, or feelings.
         • The `send_patches` tool will validate your generated patches; if patches are not fine, it will respond with an error, so you should retry generating correct patches.
         • If `send_patches` returns an error, you must either retry generating correct patches or ask the user for clarification before proceeding.
         • If you are sure about new additions or updates, you may add them directly without asking for user confirmation.
 
        --- Schema ---
-            {{project_name, project_description, description_bullets[], duration}}
+            {{project_name,description_bullets[], duration}}
 
         --- Current Entries (It is visible to Human) ---
         Always use the following as reference when updating academic projects:
@@ -443,6 +444,7 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
 
             --- Guidelines for this node ---
             • Be warm, concise, and positive.
+            • DO NOT ask about rewards, challenges, learnings, or feelings.
             • Only request more details if absolutely necessary.
             • Occasionally ask general, open-ended questions about projects to keep the conversation natural.
             • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.

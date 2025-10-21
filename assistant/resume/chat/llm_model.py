@@ -38,6 +38,7 @@ from typing import Optional,Union,Literal
 from pydantic import BaseModel,Field
 
 class InternshipState(BaseModel):
+    error_msg: Optional[str] = None
     generated_query: Optional[str] = None
     save_node_response: Optional[str] = None
     retrieved_info: Optional[str] = None

@@ -66,7 +66,9 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
 
             === Rules ===
             - Be concise (≤60 words per user message).  
-            - No raw data dumps; only perform tool updates.  
+            - No raw data dumps; only perform tool updates. 
+            • Never reveal your identity or the identity of any other agent. Do not mention being an AI, model, or assistant. If a transfer or handoff is required, perform it silently without notifying or asking the user. Always behave as a human assistant.. 
+            • DO NOT ask about rewards, challenges, learnings, or feelings.
             - Confirm tool necessity before every call.  
             - No redundant clarifications; assume defaults unless critical.  
             - Optimize tailoring → emphasize achievements, metrics, academic rigor.  

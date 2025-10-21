@@ -239,7 +239,7 @@ async def apply_patches(thread_id: str, patches: list[dict]):
                 internship_state = {}
         else:
             internship_state = {}
-
+        
         # Early exit if no patches
         if not patches:
             return {"status": "success", "message": "No patches to apply."}

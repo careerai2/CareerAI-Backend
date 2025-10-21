@@ -54,8 +54,9 @@ def call_scholastic_achievement_model(state: SwarmResumeState, config: RunnableC
         4. You can move entries using `reorder_tool  with `MoveOperation`, it requires old_index and new_index,to move the entry,***Don't ask user for indexes brainstorm yourself you already have current entries***.
         5. Ask one question at a time to fill missing details.
         6. If user asks about different section check ur tools or route them to that agent
+         • Never reveal your identity or the identity of any other agent. Do not mention being an AI, model, or assistant. If a transfer or handoff is required, perform it silently without notifying or asking the user. Always behave as a human assistant..
         7. If u didn't understand the request → call `transfer_to_main_agent`.
-
+        8. DO NOT ask about rewards, challenges, learnings, or feelings.
         Scholastic Achievement Schema:
        {{title | awarding_body | year (optional) | description (optional)}}
 

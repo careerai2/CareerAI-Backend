@@ -23,7 +23,6 @@ class PyObjectId(ObjectId):
 # ------------------- Nested Structures ------------------------
 class AcademicProject(BaseModel):
     project_name: Optional[str] = None
-    project_description: Optional[str] = None
     description_bullets: Optional[List[str]] = Field(default_factory=list)
     duration: Optional[str] = None
     

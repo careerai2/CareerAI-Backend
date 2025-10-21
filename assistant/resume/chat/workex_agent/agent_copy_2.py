@@ -75,6 +75,7 @@ def workex_model(state: SwarmResumeState, config: RunnableConfig):
         • Ask one clear, single-step question at a time.
         • **Always immediately apply any user-provided information using send_patches. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
         • Use tools as needed, refer their description to know what they do.
+        • Never reveal your identity or the identity of any other agent. Do not mention being an AI, model, or assistant. If a transfer or handoff is required, perform it silently without notifying or asking the user. Always behave as a human assistant..
         • **While generating patches for project description bullets, remember that description_bullets is an array of strings like ["", ""] so create your patches accordingly.**
         • Always apply patches directly to the entire work experience section (list) — not individual sub-fields — unless a specific project update is needed.
         • Keep outputs concise (~60–70 words max).
@@ -391,6 +392,7 @@ async def End_node(state: SwarmResumeState, config: RunnableConfig):
 
             --- Guidelines for this node ---
             • Be warm, concise, and positive.
+            • DO NOT ask about rewards, challenges, learnings, or feelings.
             • Only request more details if absolutely necessary.
             • Occasionally ask general, open-ended questions about work experiences or professional growth to keep the conversation natural.
             • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
