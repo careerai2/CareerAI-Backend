@@ -52,10 +52,10 @@ def get_graph_state(user_id: str, resume_id: str, key: str) -> dict:
     """Fetch the graph state for a specific user and resume."""
     try:
         redis_key = f"state:{user_id}:{resume_id}:{key}"
-        data = r.get(redis_key)
+
 
         default_state = {
-        "error_msg": "None",
+        "error_msg": None,
         "retrieved_info": "None",
         "generated_query": "",
         "save_node_response": "",

@@ -176,9 +176,9 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
             "resume_schema": resume,
             "internship": {},
             # "internship": get_graph_state(user_id, resume_id, "internship"),
-            "workex": get_graph_state(user_id, resume_id, "workex"),
-            "por": get_graph_state(user_id, resume_id, "por"),
-            "acads": get_graph_state(user_id, resume_id, "acads"),
+            "workex": {},
+            "por":{},
+            "acads":{},
         },
         config={
         "configurable": {

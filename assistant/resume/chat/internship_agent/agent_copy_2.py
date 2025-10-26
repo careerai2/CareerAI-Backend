@@ -54,8 +54,7 @@ async def call_internship_model(state: SwarmResumeState, config: RunnableConfig)
     if error_msg:
         print(f"⚠️ Internship patch failed with error: {error_msg}")
         
-        # Reset error so it doesn’t loop forever
-        state["internship"]["error_msg"] = None
+   
 
         # Give LLM a short controlled prompt to reply politely
         recovery_prompt = f"""
@@ -75,6 +74,9 @@ async def call_internship_model(state: SwarmResumeState, config: RunnableConfig)
         # Make it human-like using the same LLM pipeline
         response = await llm_internship.ainvoke([recovery_prompt], config)
         print("internship_model (error recovery) response:", response.content)
+        
+        # Reset error so it doesn’t loop forever
+        state["internship"]["error_msg"] = None
 
         return {
             "messages": [response],
@@ -470,23 +472,24 @@ async def End_node(state: SwarmResumeState, config: RunnableConfig):
 
  
                         
+        
+        
         # system_prompt = SystemMessage(
         #     content=dedent(f"""
-        #         You are a human-like Internship Assistant for a Resume Builder.
+        #     You are a human-like Internship Assistant for a Resume Builder.
 
-        #         Focus on **chat engagement**, not on re-outputting or editing entries. 
-        #         The user already knows what was updated in their internship section.
+        #     Focus solely on engaging the user in a supportive, professional, and encouraging manner. 
+        #     Do not repeat, edit, or reference any internship entries or technical details.
 
-        #         Last node message: {save_node_response if save_node_response else "None"}
+        #     Last node message: {save_node_response if save_node_response else "None"}
 
-        #         --- Guidelines for this node ---
-        #         • Be supportive, encouraging, and professional.
-        #         Your responses should e **friendly, warm, and brief**. 
-        #         Only ask for additional details if truly needed. 
-        #         Occasionally, ask general internship-related questions to keep the conversation flowing. 
-
-        #         DO NOT suggest edits, additions, or updates. ALSO DON'T MENTION about the PATCHES in the response ,you can acknowledge the last node response that has been provifded above but not about the patches.
-        #         Your goal is to **motivate and encourage the user** to continue working on their resume.
+        #     --- Guidelines for this node ---
+        #     • Be warm, concise, and positive.
+        #     • DO NOT ask about rewards, challenges, learnings, or feelings.
+        #     • Only request more details if absolutely necessary.
+        #     • Occasionally ask general, open-ended questions about internships to keep the conversation natural.
+        #     • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
+        #     • Your primary goal is to motivate and encourage the user to continue improving their resume.
         #     """)
         # )
         
@@ -500,10 +503,18 @@ async def End_node(state: SwarmResumeState, config: RunnableConfig):
             Last node message: {save_node_response if save_node_response else "None"}
 
             --- Guidelines for this node ---
-            • Be warm, concise, and positive.
+            • Be concise and professional.
             • DO NOT ask about rewards, challenges, learnings, or feelings.
-            • Only request more details if absolutely necessary.
-            • Occasionally ask general, open-ended questions about internships to keep the conversation natural.
+            • ONLY ask one of the following questions if necessary:
+              - "What would you like to fill next?"
+              - "Is there anything else you'd like to update or add?"
+              - "Would you like to add impact and outcome for this experience?"
+              - "Would you like to refine any part of this internship further?"
+              - "Do you want to add any specific tools or technologies you used here?"
+              - "Would you like to include measurable results or achievements ?"
+              - "Nice work! Want to expand this part a bit more ?"
+              - "Would you like to summarize this experience in one strong sentence ?"
+              - "Should I help you make this point more impactful?"
             • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
             • Your primary goal is to motivate and encourage the user to continue improving their resume.
             """)
@@ -513,6 +524,8 @@ async def End_node(state: SwarmResumeState, config: RunnableConfig):
         # # Include last 3 messages for context (or fewer if less than 3)
         # messages = state["messages"]
         messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
+        
+        
         response = llm.invoke([system_prompt] + messages, config)
         
                 

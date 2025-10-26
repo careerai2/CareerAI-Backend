@@ -39,16 +39,57 @@ instruction = {
      "location": "Format: **City, Country.** | Example: *Bengaluru, India.*",
   }
 
-
+MAX_TOKEN = 325    
 
 # main model
-def call_por_model(state: SwarmResumeState, config: RunnableConfig):
+async def call_por_model(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for Por assistant with immediate state updates."""
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
     
     
     current_entries = state.get("resume_schema", {}).get("positions_of_responsibility", [])
 
+    
+    error_msg = state.get("por", {}).get("error_msg", None)
+    
+    print("POR State in por_model:", state.get("por", {}))
+    
+    if error_msg is not None:
+        print(f"⚠️ POR patch failed with error: {error_msg}")
+        
+       
+
+        # Give LLM a short controlled prompt to reply politely
+        recovery_prompt = f"""
+            The last POR patch operation failed with: '{error_msg}'.
+            You have access to all tools, including send_patches.
+
+            Rules for your response:
+            1. Try to fix the issue automatically using the available tools (e.g., retry sending the patch).
+            2. If automatic recovery is not possible, politely inform the user about the failure without revealing internal or technical details.
+            3. Do NOT mention your identity, the identity of other agents, or that you are an AI/model/assistant.
+            4. If a transfer or handoff is needed, perform it silently; do not notify or ask the user.
+            5. Keep the response concise, polite, and human-like.
+            """
+
+        
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKEN)
+        # Make it human-like using the same LLM pipeline
+        response = await llm_por.ainvoke([recovery_prompt], config)
+        print("por_model (error recovery) response:", response.content)
+        
+        
+         # Reset error so it doesn’t loop forever
+        state["por"]["error_msg"] = None
+
+        return {
+            "messages": [response],
+            "por": {
+                    "error_msg": None,
+                }
+            }
+    
+  
     
     system_prompt = SystemMessage(
     content=dedent(f"""
@@ -389,7 +430,18 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         if result and result.get("status") == "success":
             print("Entry state updated successfully in Redis.")
             state["por"]["save_node_response"] = f"patches applied successfully on fields {', '.join(patch_field)}."
-          
+            return {"next_node": "end_node"}
+        
+        elif result and result.get("status") == "error":
+            error_msg = result.get("message", "Unknown error during patch application.")
+            
+            return {
+                "messages": [AIMessage(content=f"Failed to apply patches: {error_msg},Pathces: {patches}")],
+                "next_node": "por_model",
+                "por": {
+                    "error_msg": error_msg,
+                }
+            }  
             
             print("\n\n\n\n")
     except Exception as e:
@@ -414,6 +466,25 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         print("End Node - save_node_response:", save_node_response)
 
      
+        # system_prompt = SystemMessage(
+        #     content=dedent(f"""
+        #     You are a human-like POR Assistant for a Resume Builder.
+
+        #     Focus solely on engaging the user in a supportive, professional, and encouraging manner. 
+        #     Do not repeat, edit, or reference any por entries or technical details.
+
+        #     Last node message: {save_node_response if save_node_response else "None"}
+
+        #     --- Guidelines for this node ---
+        #     • Be warm, concise, and positive.
+        #     • DO NOT ask about rewards, challenges, learnings, or feelings.
+        #     • Only request more details if absolutely necessary.
+        #     • Occasionally ask general, open-ended questions about projects to keep the conversation natural.
+        #     • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
+        #     • Your primary goal is to motivate and encourage the user to continue improving their resume.
+        #     """)
+        # )
+        
         system_prompt = SystemMessage(
             content=dedent(f"""
             You are a human-like POR Assistant for a Resume Builder.
@@ -426,12 +497,21 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
             --- Guidelines for this node ---
             • Be warm, concise, and positive.
             • DO NOT ask about rewards, challenges, learnings, or feelings.
-            • Only request more details if absolutely necessary.
-            • Occasionally ask general, open-ended questions about projects to keep the conversation natural.
+            • ONLY ask one of the following questions if necessary:
+              - "What would you like to fill next?"
+              - "Is there anything else you'd like to update or add?"
+              - "Would you like to add impact and outcome for this experience?"
+              - "Would you like to refine any part of this internship further?"
+              - "Do you want to add any specific tools or technologies you used here?"
+              - "Would you like to include measurable results or achievements ?"
+              - "Nice work! Want to expand this part a bit more ?"
+              - "Would you like to summarize this experience in one strong sentence ?"
+              - "Should I help you make this point more impactful?"
             • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
             • Your primary goal is to motivate and encourage the user to continue improving their resume.
             """)
         )
+        
 
 
 
@@ -439,7 +519,6 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
         
         response = llm.invoke([system_prompt] + messages, config)
-        
                 
         if save_node_response:
             state["por"]["save_node_response"] = None  # Clear after using
@@ -499,6 +578,18 @@ def por_model_router(state: SwarmResumeState):
 
 
 
+def save_node_router(state: SwarmResumeState):
+    error_msg = state.get("por", {}).get("error_msg", [])
+    
+    if error_msg:
+        return "por_model"
+    
+    
+    return "end_node"
+
+
+
+
 
 
 
@@ -548,6 +639,17 @@ workflow.add_conditional_edges(
 )
 
 
+workflow.add_conditional_edges(
+    "save_entry_state",
+    save_node_router,
+    {
+        "por_model": "por_model",
+        "end_node": "end_node",   
+        END: END
+    }
+)
+
+
 
 
 # Edges
@@ -555,7 +657,7 @@ workflow.add_conditional_edges(
 workflow.add_edge("query_generator_model", "retriever_node")  # return to retriever
 workflow.add_edge("retriever_node","builder_model")   # return to builder
 workflow.add_edge("builder_model", "save_entry_state")
-workflow.add_edge("save_entry_state", "end_node")
+# workflow.add_edge("save_entry_state", "end_node")
 workflow.add_edge("end_node",END)
 
 

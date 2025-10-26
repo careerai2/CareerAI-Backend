@@ -58,12 +58,47 @@ instruction = {
 MAX_TOKENS = 350
 
 # main model
-def workex_model(state: SwarmResumeState, config: RunnableConfig):
+async def workex_model(state: SwarmResumeState, config: RunnableConfig):
     """Main chat loop for workex assistant with immediate state updates."""
     
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
     current_entries = state.get("resume_schema", {}).get("work_experiences", [])
     
+    error_msg = state.get("workex", {}).get("error_msg", None)
+    
+    if error_msg:
+        print(f"⚠️ WORKEX patch failed with error: {error_msg}")
+        
+   
+
+        # Give LLM a short controlled prompt to reply politely
+        recovery_prompt = f"""
+            The last workex patch operation failed with: '{error_msg}'.
+            You have access to all tools, including send_patches.
+
+            Rules for your response:
+            1. Try to fix the issue automatically using the available tools (e.g., retry sending the patch).
+            2. If automatic recovery is not possible, politely inform the user about the failure without revealing internal or technical details.
+            3. Do NOT mention your identity, the identity of other agents, or that you are an AI/model/assistant.
+            4. If a transfer or handoff is needed, perform it silently; do not notify or ask the user.
+            5. Keep the response concise, polite, and human-like.
+            """
+
+        
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
+        # Make it human-like using the same LLM pipeline
+        response = await llm_workEx.ainvoke([recovery_prompt], config)
+        print("workex_model (error recovery) response:", response.content)
+        
+        # Reset error so it doesn’t loop forever
+        state["workex"]["error_msg"] = None
+
+        return {
+            "messages": [response],
+            "internship": {
+                    "error_msg": None,
+                }
+            }
 
     
     system_prompt = SystemMessage(
@@ -361,7 +396,19 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         if result and result.get("status") == "success":
             print("Entry state updated successfully in Redis.")
             state["workex"]["save_node_response"] = f"patches applied successfully on fields {', '.join(patch_field)}."
+            state["workex"]["patches"] = []  
+            return {"next_node": "end_node"}
+        
+        elif result and result.get("status") == "error":
+            error_msg = result.get("message", "Unknown error during patch application.")
             
+            return {
+                "messages": [AIMessage(content=f"Failed to apply patches: {error_msg},Pathces: {patches}")],
+                "next_node": "workex_model",
+                "workex": {
+                    "error_msg": error_msg,
+                }
+            }  
             print("\n\n\n\n")
     except Exception as e:
         print("Error in save_entry_state:", e)
@@ -393,8 +440,16 @@ async def End_node(state: SwarmResumeState, config: RunnableConfig):
             --- Guidelines for this node ---
             • Be warm, concise, and positive.
             • DO NOT ask about rewards, challenges, learnings, or feelings.
-            • Only request more details if absolutely necessary.
-            • Occasionally ask general, open-ended questions about work experiences or professional growth to keep the conversation natural.
+            • ONLY ask one of the following questions if necessary:
+              - "What would you like to fill next?"
+              - "Is there anything else you'd like to update or add?"
+              - "Would you like to add impact and outcome for this experience?"
+              - "Would you like to refine any part of this work experience further?"
+              - "Do you want to add any specific tools or technologies you used here?"
+              - "Would you like to include measurable results or achievements ?"
+              - "Nice work! Want to expand this part a bit more ?"
+              - "Would you like to summarize this experience in one strong sentence ?"
+              - "Should I help you make this point more impactful?"
             • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
             • Your primary goal is to motivate and encourage the user to continue improving their resume and highlight impactful experiences.
         """)
@@ -406,6 +461,7 @@ async def End_node(state: SwarmResumeState, config: RunnableConfig):
         messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
         
         response = llm_replier.invoke([system_prompt] + messages, config)
+        
         
                 
         if save_node_response:
@@ -442,24 +498,24 @@ def workex_model_router(state: SwarmResumeState):
     last_message = state["messages"][-1]
     # patches = state["workex"]["patches"]
     
-    # print("\n\nPatches in Router:-", patches)
 
     # 1. Go to workex tools if a tool was called
     if getattr(last_message, "tool_calls", None):
         return "tools_workex"
 
-    #  # 2. If there are patches to process, go to query generator
-    # if patches and len(patches) > 0:
-    #     print("Patches exist, going to query_generator_model")
-    #     return "query_generator_model"
-    
-    # 3. Otherwise continue the chat (stay in workex_model)
-    
-
     
     return END
 
 
+
+def save_node_router(state: SwarmResumeState):
+    error_msg = state.get("workex", {}).get("error_msg", [])
+    
+    if error_msg:
+        return "workex_model"
+    
+    
+    return "end_node"
 
 
 # ---------------------------
@@ -506,6 +562,16 @@ workflow.add_conditional_edges(
     }
 )
 
+workflow.add_conditional_edges(
+    "save_entry_state",
+    save_node_router,
+    {
+        "workex_model": "workex_model",
+        "end_node": "end_node",   
+        END: END
+    }
+)
+
 
 
 
@@ -514,7 +580,7 @@ workflow.add_conditional_edges(
 workflow.add_edge("query_generator_model", "retriever_node")  # return to retriever
 workflow.add_edge("retriever_node","builder_model")   # return to builder
 workflow.add_edge("builder_model", "save_entry_state")
-workflow.add_edge("save_entry_state", "end_node")
+# workflow.add_edge("save_entry_state", "end_node")
 workflow.add_edge("end_node",END)
 
 

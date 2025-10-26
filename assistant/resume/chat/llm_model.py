@@ -45,6 +45,7 @@ class InternshipState(BaseModel):
     patches: Optional[list[dict]] = Field(default_factory=list)
    
 class WorkexState(BaseModel):
+    error_msg: Optional[str] = None
     generated_query: Optional[str] = None
     save_node_response: Optional[str] = None
     retrieved_info: Optional[str] = None
@@ -53,6 +54,7 @@ class WorkexState(BaseModel):
    
 
 class PorState(BaseModel):
+    error_msg: Optional[str] = None
     generated_query: Optional[str] = None
     save_node_response: Optional[str] = None
     retrieved_info: Optional[str] = None
@@ -61,6 +63,7 @@ class PorState(BaseModel):
     
 
 class AcadState(BaseModel):
+    error_msg: Optional[str] = None
     generated_query: Optional[str] = None
     save_node_response: Optional[str] = None
     retrieved_info: Optional[str] = None

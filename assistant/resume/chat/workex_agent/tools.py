@@ -8,11 +8,10 @@ from pydantic import BaseModel, field_validator
 import json
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
-from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
+from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend,check_patch_correctness
 from ..handoff_tools import *
 from ..utils.update_summar_skills import update_summary_and_skills
 from redis_config import redis_client as r
-from .functions import update_workex_field
 
 @tool
 def get_compact_work_experience_entries(config: RunnableConfig):
@@ -688,7 +687,21 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
 
+        # raise ValueError("Server is down for maintenance. Please try again later.")
+    
+        if state["resume_schema"]:
+            current_entries = getattr(state["resume_schema"], "work_experiences", []) or []
+            current_entry_length = len(current_entries)
 
+        # print(f"Current acads entries count: {current_entry_length}")
+
+        check_patch_result = check_patch_correctness(patches, current_entry_length)
+        
+        if check_patch_result != True:
+            raise ValueError("Something Went Wrong, Try Again")
+    
+    
+        
         tool_message = ToolMessage(
             content="Successfully transferred to query_generator_model",
             name="send_patches_success",
@@ -707,11 +720,17 @@ async def send_patches(
         )
 
     except Exception as e:
-        print(f"❌ Error applying internship entry patches: {e}")
+        print(f"❌ Error applying Workex entry patches: {e}")
 
+
+        fallback_error_msg = f"Error in send_patches tool: {e}"
         fallback_msg = ToolMessage(
-            content=f"Error applying patches due to the error: {e}",
-            name="send_patches_error_message",
+            content=(
+                f"""The send_patches tool failed due to: {e}. 
+                Please either retry generating valid patches or inform the user 
+                that the update could not be applied."""
+            ),
+            name="system_feedback",
             tool_call_id=tool_call_id,
         )
 
@@ -720,6 +739,11 @@ async def send_patches(
             goto="workex_model",
             update={
                 "messages": [fallback_msg],
+                "workex": {
+                    "error_msg": fallback_error_msg,
+                    "patches": patches,
+                }
+                
             },
         )
 

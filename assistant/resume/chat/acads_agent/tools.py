@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 import json
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
-from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
+from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend,check_patch_correctness
 from ..handoff_tools import *
 from ..utils.update_summar_skills import update_summary_and_skills
 from redis_config import redis_client as r
@@ -339,68 +339,6 @@ async def reorder_responsibilities_tool(
         return {"status": "error", "message": str(e)}
 
 
-
-
-
-@tool
-async def get_entry_by_company_name(
-    company_name: str,
-    state: Annotated[SwarmResumeState, InjectedState],
-    config: RunnableConfig
-):
-    """get the internship entry by company name."""
-    try:
-        user_id = config["configurable"].get("user_id")
-        resume_id = config["configurable"].get("resume_id")
-
-        if not user_id or not resume_id:
-            raise ValueError("Missing user_id or resume_id in context.")
-
-        resume = get_resume(user_id, resume_id)
-        
-        entries = resume.get("internships", [])
-        
-        if len(entries) == 0:
-            raise ValueError("No internship entries found in the resume.Add an entry first.")
-        
-        entry = next((e for e in entries if e.get("company_name", "").lower() == company_name.lower()), None)
-        
-        if not entry:
-            raise ValueError(f"No internship entry found for company '{company_name}'.")
-        
-        key = f"state:{user_id}:{resume_id}:internship"
-
-        # Load existing state from Redis if present
-        saved_state = r.get(key)
-        if saved_state:
-            if isinstance(saved_state, bytes):   # handle redis-py default
-                saved_state = saved_state.decode("utf-8")
-            saved_state = json.loads(saved_state)
-        else:
-            saved_state = {"entry": {}, "retrived_info": "None"}
-        
-        
-        # Update entry while preserving retrived_info
-        saved_state["entry"] = entry
-        saved_state["index"] = entries.index(entry)
-        
-
-        # Save back to Redis
-        status = r.set(key, json.dumps(saved_state))
-
-        return {
-            "status": "success" if status else "failed",
-        }
-
-    except Exception as e:
-        print(f"❌ Error getting entry by company name: {e}")
-        return {"status": "error", "message": str(e)}
-
-
-
-
-
-
 @tool
 async def send_patches(
     patches: list[dict],   # <-- instead of entry
@@ -437,7 +375,19 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
         
+        current_entry_length = 0
         
+        if state["resume_schema"]:
+            current_entries = getattr(state["resume_schema"], "academic_projects", []) or []
+            current_entry_length = len(current_entries)
+
+        # print(f"Current acads entries count: {current_entry_length}")
+
+        check_patch_result = check_patch_correctness(patches, current_entry_length)
+        
+        if check_patch_result != True:
+            raise ValueError("Something Went Wrong, Try Again")
+    
         tool_message = ToolMessage(
             content="Successfully transferred to query_generator_model",
             name="handoff_to_query_generator_model",
@@ -459,12 +409,30 @@ async def send_patches(
 
     except Exception as e:
         print(f"❌ Error applying por entry patches: {e}")
+
+        fallback_error_msg = f"Error in send_patches tool: {e}"
         fallback_msg = ToolMessage(
-            content=f"Error applying patches internally: {e}",
-            name="error_message",
+            content=(
+                f"""The send_patches tool failed due to: {e}. 
+                Please either retry generating valid patches or inform the user 
+                that the update could not be applied."""
+            ),
+            name="system_feedback",
             tool_call_id=tool_call_id,
         )
-        return {"messages": [fallback_msg]}
+
+        # ❌ Do not raise ToolException if you want router to handle it
+        return Command(
+            goto="acads_model",
+            update={
+                "messages": [fallback_msg],
+                "acads": {
+                    "error_msg": fallback_error_msg,
+                    "patches": patches,
+                }
+                
+            },
+        )
 
 
 

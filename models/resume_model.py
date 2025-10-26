@@ -29,24 +29,19 @@ class AcademicProject(BaseModel):
     
 class Project(BaseModel):
     project_name: Optional[str] = None
-    project_description: Optional[str] = None
     description_bullets: Optional[List[str]] = Field(default_factory=list)
 
 class WorkExperience(BaseModel):
     company_name: Optional[str] = None
-    company_description: Optional[str] = None
     location: Optional[str] = None
     duration: Optional[str] = None
     designation: Optional[str] = None
-    designation_description: Optional[str] = None
     projects: Optional[List[Project]] = Field(default_factory=list)
 
 class Internship(BaseModel):
     company_name: Optional[str] = None
-    # company_description: Optional[str] = None
     location: Optional[str] = None
     designation: Optional[str] = None
-    # designation_description: Optional[str] = None
     duration: Optional[str] = None
     internship_work_description_bullets: Optional[List[str]] = Field(default_factory=list)
 
@@ -65,9 +60,7 @@ class ScholasticAchievement(BaseModel):
 
 class PositionOfResponsibility(BaseModel):
     role: Optional[str] = None
-    role_description: Optional[str] = None
     organization: Optional[str] = None
-    organization_description: Optional[str] = None
     location: Optional[str] = None
     duration: Optional[str] = None
     responsibilities: Optional[List[str]] = Field(default_factory=list)
@@ -80,7 +73,6 @@ class ExtraCurricular(BaseModel):
 
 class Certification(BaseModel):
     certification: Optional[str] = None
-    description: Optional[str] = None
     issuing_organization: Optional[str] = None
     time_of_certification: Optional[int] = None
 
