@@ -117,6 +117,18 @@ async def send_patch_to_frontend(user_id: str, resume: ResumeLLMSchema):
         print(f"No WebSocket connection found for user {user_id}")
 
 
+async def send_bullet_response(user_id: str, res:str):
+    """Will send the JSON patch to the frontend via WebSocket."""
+    manager: ConnectionManager = app.state.connection_manager
+    if manager.active_connections.get(str(user_id)):
+        try:
+            await manager.send_json_to_user(user_id, {"type":"bullet_response","generated_text": res})
+        except Exception as e:
+            print(f"Failed to send bullet to frontend for user {user_id}: {e}")
+    else:
+        print(f"No WebSocket connection found for user {user_id}")
+
+
 def generate_inverse_patch(original_obj, patches):
     inverse_patches = []
     for patch in patches:
@@ -221,7 +233,7 @@ async def retrive_entry_from_resume(
         # Access the section safely
         section_entries = resume.get(section, [])
         
-        if not entryIndex:
+        if entryIndex is None:
             return section_entries
         
         if entryIndex >= len(section_entries):
@@ -309,21 +321,6 @@ async def apply_section_patches(
 
 
 
-# def get_patch_field_and_index(patch_path: str):
-#     """
-#     Extracts internship index and field from a JSON Patch path.
-#     Examples:
-#       /0/company_name  -> index=0, field='company_name'
-#       /1/duration      -> index=1, field='duration'
-#       /internship_work_description_bullets -> index=None, field='internship_work_description_bullets'
-#     """
-#     parts = patch_path.lstrip("/").split("/")
-#     if len(parts) == 0:
-#         return None, ""
-#     if parts[0].isdigit():
-#         return int(parts[0]), parts[-1]
-#     return None, parts[-1]
-
 def get_patch_field_and_index(patch_path: str):
     """
     Extracts internship index and field from a JSON Patch path.
@@ -367,7 +364,7 @@ def get_patch_field_and_index(patch_path: str):
 
 
 def check_patch_correctness(patch_list: List[Dict], list_length: int) -> bool:
-    valid_ops = {"add", "replace", "remove"}
+    valid_ops = {"add", "replace", "remove","move","copy","test"}
     
     for patch in patch_list:
         # Check required keys
@@ -401,3 +398,94 @@ def get_unique_indices(patch_list: List[Dict]) -> List[int]:
         if match:
             indices.add(int(match.group(1)))
     return list(indices)
+
+
+ValidSectionLiteral = Literal[
+    "certifications",
+    "education_entries",
+    "work_experiences",
+    "internships",
+    "achievements",
+    "positions_of_responsibility",
+    "extra_curriculars",
+    "academic_projects"
+]
+
+
+async def apply_patches_global(
+    thread_id: str,
+    patches: list[dict],
+    section: ValidSectionLiteral
+
+):
+    """
+    Apply JSON Patch (RFC 6902) operations to any section of the resume.
+
+    Args:
+        thread_id (str): Combined user_id:resume_id identifier.
+        patches (list[dict]): List of JSON Patch operations.
+        section (str): Target section (e.g., 'certifications', 'education', 'projects').
+
+    The function:
+        - Loads resume from Redis
+        - Applies patches to the given section
+        - Saves back to Redis
+        - Syncs updates to frontend
+        - Pushes undo info to Redis
+    """
+
+    try:
+        if not patches:
+            return {"status": "success", "message": "No patches to apply."}
+
+        # Load current resume from Redis
+        current_resume_raw = r.get(f"resume:{thread_id}")
+        if not current_resume_raw:
+            return {"status": "error", "message": "Resume not found in Redis."}
+
+        try:
+            current_resume = json.loads(current_resume_raw)
+        except json.JSONDecodeError:
+            return {"status": "error", "message": "Corrupted resume data in Redis."}
+
+        # Ensure the target section exists
+        current_section = current_resume.get(section, [])
+        if not isinstance(current_section, list):
+            current_section = []
+
+        # Apply patches
+        try:
+            jsonpatch.apply_patch(current_section, patches, in_place=True)
+            print(f"✅ Applied patches to {section}: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            return {"status": "error", "message": f"Failed to apply patch list: {e}"}
+
+        # Save back to resume
+        current_resume[section] = current_section
+
+        # Save updated resume to Redis
+        try:
+            r.set(f"resume:{thread_id}", json.dumps(current_resume))
+        except TypeError as e:
+            return {"status": "error", "message": f"Failed to serialize updated resume: {e}"}
+
+        # Identify user safely
+        user_id = thread_id.split(":", 1)[0] if ":" in thread_id else thread_id
+
+        # Notify frontend
+        await send_patch_to_frontend(user_id, current_resume)
+
+        # Push undo stack
+        undo_stack_key = f"undo_stack:{thread_id}"
+        r.lpush(
+            undo_stack_key,
+            json.dumps({"section": section, "patches": patches}),
+        )
+
+        print(f"User {user_id}: Applied patches to {section} section successfully.")
+        return {"status": "success", "message": f"{section.capitalize()} section updated successfully."}
+
+    except ValidationError as ve:
+        return {"status": "error", "message": f"Validation error: {ve.errors()}"}
+    except Exception as e:
+        return {"status": "error", "message": f"Unexpected error: {str(e)}"}

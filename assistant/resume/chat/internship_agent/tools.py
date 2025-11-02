@@ -721,16 +721,30 @@ async def send_patches(
         
         current_entry_length = 0
         
-        if state["resume_schema"]:
-            current_entries = getattr(state["resume_schema"], "internships", []) or []
-            current_entry_length = len(current_entries)
+        if not state["resume_schema"]:
+            raise ValueError("Resume schema state not initialized.")
+            
 
-        print(f"Current internship entries count: {current_entry_length}")
+        # print(f"Current internship entries count: {current_entry_length}")
 
-        check_patch_result = check_patch_correctness(patches, current_entry_length)
+        # check_patch_result = check_patch_correctness(patches, current_entry_length)
         
-        if check_patch_result != True:
-            raise ValueError("Something Went Wrong, Try Again")
+        # if check_patch_result != True:
+        #     raise ValueError("Something Went Wrong, Try Again")
+        
+        current_internships = state["resume_schema"].model_dump().get("internships", [])
+
+        
+        print(f"Current internships before patch: current_internships")
+        if not isinstance(current_internships, list):
+            current_internships = []
+
+        # ✅ checking patch validation internships list
+        try:
+            jsonpatch.apply_patch(current_internships, patches,in_place=False)
+            print(f"Applied patch list to internships: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            raise ValueError(f"Invalid JSON Patch operations: {e}")
 
         tool_message = ToolMessage(
             content="Successfully transferred to query_generator_model",
@@ -798,5 +812,5 @@ tools = [
 
 transfer_tools = [transfer_to_main_agent, transfer_to_por_agent,
          transfer_to_workex_agent, transfer_to_education_agent,transfer_to_acads_agent,
-         transfer_to_scholastic_achievement_agent, transfer_to_extra_curricular_agent]
+         transfer_to_scholastic_achievement_agent, transfer_to_extra_curricular_agent,transfer_to_certification_assistant_agent]
     

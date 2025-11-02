@@ -77,14 +77,14 @@ Section_MAPPING = {
     "internships": "Internship Document Formatting Guidelines",
     "work_experiences": "Work Experience Document Formatting Guidelines",
     "positions_of_responsibility": "Position of Responsibility Document Formatting Guidelines",
-    "academic_projects": ""
+    "academic_projects": "Academic Project Document Formatting Guidelines"
 }
 
 Sub_Section_MAPPING = {
     "internships": "Schema Requirements & Formatting Rules",
-     "work_experiences": "Work Experience Document Formatting Guidelines",
-    "positions_of_responsibility": "Position of Responsibility Document Formatting Guidelines",
-    "academic_projects": ""
+     "work_experiences": "Schema Requirements & Formatting Rules",
+    "positions_of_responsibility": "Schema Requirements & Formatting Rules",
+    "academic_projects": "Schema Requirements & Formatting Rules"
     
 }
 
@@ -95,5 +95,5 @@ FIELD_MAPPING_Bullet = {
     "internships": "Internship Work Description Bullets",
     "work_experiences": "Work Experience Description Bullets",
     "positions_of_responsibility": "Position of Responsibility Description Bullets",
-    "academic_projects": "Academic Project Description Bullets"
+    "academic_projects": "Description Bullets"
 }

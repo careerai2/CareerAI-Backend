@@ -16,13 +16,13 @@ from .acads_agent.agent_2 import acads_assistant
 from .workex_agent.agent_copy_2 import workex_assistant
 from .position_of_responsibility_agent.agent_2 import position_of_responsibility_assistant
 
-
 from .main_agent.agent import main_assistant
 
 # from .position_of_responsibility_agent.agent import position_of_responsibility_assistant
 # from .workex_agent.agent import workex_assistant
 
-from .education_agent.agent import education_assistant
+from .education_agent.agent import education_assistant 
+from .certifications_agent.agent import certification_assistant 
 from .extra_curricular_agent.agent import extra_curricular_assistant
 from .scholastic_achievement_agent.agent import scholastic_achievement_assistant
 
@@ -47,7 +47,8 @@ graph = create_swarm(
             workex_assistant,
             extra_curricular_assistant,
             scholastic_achievement_assistant,
-            acads_assistant
+            acads_assistant,
+            certification_assistant
             ],
     default_active_agent="main_assistant"
 ).compile(checkpointer=memory)
@@ -142,7 +143,7 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
 
     print(user_input)
     
-    # await save_chat_message(db, user_id, resume_id, user_input, sender_role='user')
+    # await save_chat_message(db, user_id, resume_id, user_input, sender='user', type='sent')
     
     # if isinstance(user_input, dict):
     #     try:
@@ -194,15 +195,22 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
             
         for value in event.values():
             msg = value["messages"][-1]
+            
+            if not isinstance(msg, AIMessage):
+                continue
+        
             content = msg.content
-            if isinstance(msg, AIMessage):
-                # print(f"Agent '{msg.name}' responded")
-                content = msg.content
-            if content and len(content) > 0:
-               try:
-                #  await save_chat_message(db, user_id, resume_id, content, sender_role='assistant')
-                 await websocket.send_json({"type": "chat", "message": content})
-               except Exception as e:
-                   print(f"Error saving chat message: {e}")
+
+        # ✅ Ignore internal error messages or empty strings
+            if not content or "Error:" in content or "not a valid tool" in content:
+                print(f"⚠️ Skipping internal or invalid message: {content}")
+                continue
+            
+            
+            try:
+            #  await save_chat_message(db, user_id, resume_id, content, sender='bot', type='received')
+                await websocket.send_json({"type": "chat", "message": content})
+            except Exception as e:
+                print(f"Error saving chat message: {e}")
 
 

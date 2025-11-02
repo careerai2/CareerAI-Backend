@@ -404,49 +404,75 @@ async def delete_resume_by_Id(resume_id: str, user_id: str, db: AsyncIOMotorData
         )
 
 
+from sqlalchemy import func
+from fastapi.responses import JSONResponse
+from fastapi import status
+from datetime import datetime
+from fastapi.responses import JSONResponse
+from fastapi import status
+from datetime import datetime
 
-async def get_resume_chat_msgs(resume_id: str, user_id: str, db: AsyncSession):
+async def get_resume_chat_msgs(
+    resume_id: str,
+    user_id: str,
+    db: AsyncSession,
+    limit: int = 20,
+    before: datetime | None = None
+):
     try:
-        result = await db.execute(
+        # Build base query
+        query = (
             select(ChatMessage)
             .where(ChatMessage.resume_id == resume_id)
             .where(ChatMessage.user_id == user_id)
-            .order_by(ChatMessage.timestamp.asc())  # oldest first for chat history
         )
-        
+
+        # If `before` is provided, fetch messages older than that timestamp
+        if before:
+            query = query.where(ChatMessage.timestamp < before)
+
+        # Order newest first (chat-style)
+        query = query.order_by(ChatMessage.timestamp.desc()).limit(limit)
+
+        result = await db.execute(query)
         chat_messages = result.scalars().all()
-        
-        # Map sender_role to sender and type
-        def map_sender_role(role: str):
-            if role == "assistant":
-                return "Agent", "received"
-            elif role == "user":
-                return "User", "sent"
-            else:
-                return "System", "system"
-        
+
+        # Reverse to show oldest → newest (chat order)
+        chat_messages = list(reversed(chat_messages))
+
+        # Serialize messages
         serialized_msgs = []
         for msg in chat_messages:
-            sender, mtype = map_sender_role(msg.sender_role)
             serialized_msgs.append({
                 "id": str(msg.id),
-                "sender": sender,
-                "text": msg.message,
-                "type": mtype,
+                "resume_id": str(msg.resume_id),
+                "sender": msg.sender,
+                "text": msg.text,
+                "type": msg.type,
                 "timestamp": msg.timestamp.isoformat()
             })
-        
+
+        has_more = len(chat_messages) == limit
+
         return JSONResponse(
-            content={"messages": serialized_msgs},
+            content={
+                "messages": serialized_msgs,
+                "pagination": {
+                    "limit": limit,
+                    "has_more": has_more,
+                    "next_before": chat_messages[0].timestamp.isoformat() if has_more else None
+                }
+            },
             status_code=status.HTTP_200_OK
         )
+
     except Exception as e:
         print(f"Error fetching chat messages: {e}")
         return JSONResponse(
             content={"message": f"An error occurred while fetching chat messages: {str(e)}"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-      
+
         
 
 async def get_all_resumes_by_user(user_id: str, db: AsyncIOMotorDatabase):

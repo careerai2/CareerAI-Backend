@@ -123,7 +123,8 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: As
                 thread_id = f"{user['_id']}:{resume_id}"
                 await call_model(
                     user_input=user_input["message"],
-                    thread_id=thread_id
+                    thread_id=thread_id,
+                    user_id=str(user["_id"])
                 )
                 
             elif user_input["type"] == "chat":

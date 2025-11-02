@@ -446,5 +446,5 @@ tools = [
         #  get_por_entry_by_index,
          transfer_to_extra_curricular_agent, transfer_to_main_agent,
          transfer_to_workex_agent, transfer_to_internship_agent,transfer_to_acads_agent
-         ,transfer_to_education_agent,transfer_to_scholastic_achievement_agent]
+         ,transfer_to_education_agent,transfer_to_scholastic_achievement_agent,transfer_to_certification_assistant_agent]
 

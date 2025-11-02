@@ -6,7 +6,7 @@ from langchain_core.messages import SystemMessage,HumanMessage
 from .llm_model import llm
 from langchain_core.runnables import RunnableConfig
 from textwrap import dedent
-from .utils.common_tools import retrive_entry_from_resume,apply_section_patches,extract_json_from_response
+from .utils.common_tools import retrive_entry_from_resume,apply_section_patches,extract_json_from_response,send_bullet_response,get_resume_by_threadId
 import assistant.resume.chat.token_count as token_count
 
 
@@ -24,10 +24,10 @@ class ask_agent_input(BaseModel):
 class agent_state(BaseModel):
     user_input: ask_agent_input 
     thread_id: str
+    user_id: str
     entry: Optional[dict] = None
     query: Optional[str] = None
     retrieved_content: Optional[str] = None
-    patch: list[dict] = None
     updated_entry: Optional[dict] = None
 
 
@@ -147,74 +147,109 @@ async def retriever(state: agent_state, config: RunnableConfig):
 
 
 # Node 4: Patch Generator (LLM)
-async def patch_generator(state: agent_state, config: RunnableConfig):
+async def response_generator(state: agent_state, config: RunnableConfig):
     content = state.retrieved_content
     entry = state.entry
+    user_id = state.user_id
     user_req = state.user_input.question
+    
+    if state.user_input.field == Fields.Summary:
+        content = "Focus on concise, impactful language that highlights key skills and experiences relevant to the target role."
+        
+        entry = get_resume_by_threadId(state.thread_id)
 
 
 # The action verbs can be changed according to the section  of resume will be imported later for now only internship
-    prompt = SystemMessage(content=dedent(f"""
-    You are a **Resume Patch Generator**.
+    prompt_genaral = SystemMessage(content=dedent(f"""
+        You are an **Enhancer Agent**.
 
-    Your ONLY task is to output **valid JSON Patch operations (RFC 6902)**.  
-    You MUST return one and only one operation **only for the selected part of the entry**.  
-    Do not explain, comment, or add any text outside of the JSON Patch.  
+        Your ONLY task is to produce an enhanced version of the Selected Bullet (given below) based on the user's request and the retrieved guidelines, so that it best fits within the context of the entry (Current Entry).
 
-    --- Rules ---
-    • Always output a valid JSON array.  
-    • Use `replace` for updating existing fields.  
-    • Use `add` with `/internship_work_description_bullets/-` to append new bullets.  
-    • Keep patches minimal — only change what is necessary.  
-    • If no relevant retrieved content exists, still create a patch that fulfills the user request.  
-    • Never output prose, reasoning, or anything outside JSON.  
-    
-    ## Action Verbs (to use in work descriptions)
-    Developed, Implemented, Optimized, Engineered, Automated, Tested, Designed, Deployed, Refactored, Collaborated, Researched, Analyzed, Documented
+        ### Selected Bullet of the Entry **(Only return the Enhanced version of it)**
+        {state.user_input.selected_text}
+        
+        Do **not** explain, justify, comment, or include any text outside the enhanced version itself.
 
-    --- Example ---
-      1. {{ "op": "replace", "path": "/company_name", "value": "Google" }},
-      2. {{ "op": "add", "path": "/internship_work_description_bullets/-", "value": "Implemented ML pipeline" }}
+        ---
+        ### Rules
+        • Always output only the enhanced text (no explanations or formatting).  
+        • Never output prose, reasoning, or JSON.  
+        • Maintain factual accuracy and consistent tone with the rest of the entry.  
+        • Use concise, impactful language aligned with professional writing standards.
+        
+           ---
+        ### Retrieved Guidelines
+        {content}
 
-    --- Retrieved Content ---
-    {content}
-    
-    --- selected part of the entry(ONLY MODIFY THIS)** ---
+        ###user Request
+        {state.user_input.question}
+
+        ### Current Entry
+        {entry}
+     
+        """))
+
+    prompt_for_summary = SystemMessage(content=dedent(f"""
+    You are an **Enhancer Agent** specialized in professional resume writing.
+
+    Your task is to craft a **powerful, concise, and professional summary paragraph (maximum 150 words)** that captures the essence of the candidate’s resume and aligns with the user’s request.
+
+    Use the entire resume as context but **output only the enhanced summary** — written in a confident, impactful tone suited for top internship or job applications.
+
+    ---
+
+    ### Inputs
+    **User’s Current Summary**
     {state.user_input.selected_text}
 
-    --- Current Entry ---
+    **User’s Request**
+    {state.user_input.question}
+
+    **Retrieved Guidelines**
+    {content}
+
+    **Full Resume**
     {entry}
+
+    ---
+
+    ### Rules
+    • Output only the enhanced **summary paragraph** — no lists, bullets, JSON, or extra text.  
+    • Word limit: **≤150 words.**  
+    • Keep all details factual; do not invent experiences or skills.  
+    • Tone: strong, polished, and results-oriented.  
+    • Style: clear, professional, and engaging; avoid repetition or fluff.  
+    • Do not explain or justify your output.
+
+    ---
+
+    Now, generate the **enhanced 150-word summary paragraph** representing the candidate’s overall professional profile.
     """))
 
 
+
+    
+    prompt = prompt_genaral if state.user_input.field != Fields.Summary else prompt_for_summary
+    
+    print("\n\nPatch Generator Prompt:", prompt,"\n\n\n")
+
     response = llm.invoke([prompt, HumanMessage(content=user_req)], config=config)
+    
+
+    print("\nPatch Generator Metadata:", response.usage_metadata)
+    print("Patch Generator", response)
 
     token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
     token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
     
-    patch = extract_json_from_response(response.content)
+    if(response.content):
+        await send_bullet_response(user_id=user_id,res=response.content)
+    else:
+        await send_bullet_response(user_id=user_id,res="Sorry, I couldn't generate a response. Please try again.")
 
-    print("\nPatch Generator Metadata:", response.usage_metadata)
-    print("Patch Generator", patch)
-    
-    if isinstance(patch, list):
-        patch = patch[0]  # Wrap single dict in a list
         
-    return {"patch": [patch]}
 
 
-
-# Node 5: Apply Patch (function)
-async def apply_patch(state: agent_state, config: RunnableConfig):
-    
-    patch = state.patch
-    thread_id = state.thread_id
-    section = resume_section_map(state.user_input.field)
-    index = state.user_input.entryIndex
-    await apply_section_patches(thread_id=thread_id, section=section, patches=patch, index=index)
-    # Apply patch logic here
-    print("Applying patch:", patch)
-    
 
 
 
@@ -230,16 +265,15 @@ graph = StateGraph(agent_state)
 graph.add_node("query_generator", query_generator)
 graph.add_node("retrieve_entry", retrieve_entry)
 graph.add_node("retriever", retriever)
-graph.add_node("patch_generator", patch_generator)
-graph.add_node("apply_patch", apply_patch)
+graph.add_node("response_generator", response_generator)
+
 
 
 
 # Connect nodes
 graph.add_edge("retrieve_entry", "query_generator")
 graph.add_edge("query_generator", "retriever") 
-graph.add_edge("retriever", "patch_generator")
-graph.add_edge("patch_generator", "apply_patch")
+graph.add_edge("retriever", "response_generator")
 
 
 graph.set_entry_point("retrieve_entry")
@@ -248,11 +282,11 @@ graph.set_entry_point("retrieve_entry")
 pipeline = graph.compile()
 
 
-async def call_model(user_input: str,thread_id:str):
+async def call_model(user_input: str,thread_id:str,user_id:str):
     try:
         print("\n\nUser Input",user_input,"\n\n")
 
-        await pipeline.ainvoke({"user_input": user_input,"thread_id":thread_id})
+        await pipeline.ainvoke({"user_input": user_input,"thread_id":thread_id,"user_id":user_id}, config=RunnableConfig(max_retries=1))
     except Exception as e:
         print("Error during graph execution:", e)
 

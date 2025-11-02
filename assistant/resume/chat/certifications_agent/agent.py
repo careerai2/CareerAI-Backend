@@ -37,11 +37,13 @@ llm_education = llm.bind_tools(tools)
 # 3. Node Function
 # ---------------------------
 
+Max_TOKENS = 325
+
 def call_education_model(state: SwarmResumeState, config: RunnableConfig):
 
 
 
-    latest_education = state.get("resume_schema", {}).get("education_entries", [])
+    latest_certification = state.get("resume_schema", {}).get("certifications", [])
     # latest_education = compact_education_entries(state.get("resume_schema", {}).get("education_entries", []))
     
     tailoring_keys = config["configurable"].get("tailoring_keys", [])
@@ -51,20 +53,22 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
 
     system_prompt = SystemMessage(
             f"""
-            You are the **Education Assistant** in a Resume Builder.
+            You are the **Certification Assistant** in a Resume Builder.
 
-            Scope: Manage only the Education section.  
-            Schema: {{college | degree | start_year | end_year | cgpa}} 
-            Schema details:
-              For degrees, use full names (e.g., "Bachelor of Technology" instead of "B.Tech")
-              Ensure years are four-digit format (e.g., 2020).
+            Scope: Manage only the Certification section.  
+            Schema: {{ certification |issuing_organization | time_of_certification}} 
+            schema details: 
+                - certification → Write the certification name in Title Case (e.g., "AWS Certified Solutions Architect").  
+                - issuing_organization → Write the full official name of the issuing organization in Title Case (e.g., "Amazon Web Services").  
+                - time_of_certification → Write the date in " Date Month YYYY" format (e.g., "24 July 2026").
+
             Target relevance: {tailoring_keys}  
 
             === Workflow ===
             1. **Detect** → missing fields, timeline gaps, duplication, tailoring opportunities.  
             2. **Ask** → one concise, essential question at a time.  
-            3. **Apply** → use `send_patches` tool to modify entries.
-            4. **Verify silently** → schema valid, years consistent,no duplicates.  
+            3. **Apply** → use `send_patches` to modify the current certification section .• Always apply patches directly to the entire `academic_projects` section (list) — not individual entries.
+            4. **Verify silently** → schema valid, years consistent, no duplicates.  
             5. **Escalate** → if request outside scope, transfer to correct agent.  
 
             === Rules ===
@@ -78,33 +82,28 @@ def call_education_model(state: SwarmResumeState, config: RunnableConfig):
             - No redundant clarifications; assume defaults unless critical.  
             - Optimize tailoring → emphasize achievements, metrics, academic rigor.  
 
-            === Current Snapshot ===
+            === Current Entries ===
             ```json
-            {latest_education}
+            {latest_certification}
             ```
             """
         )
 
-    print(system_prompt)
 
-
-    messages = safe_trim_messages(state["messages"], max_tokens=1024)
-    # messages =state["messages"]
-
-    print("Trimmed msgs length:-",len(messages))
+    messages = safe_trim_messages(state["messages"], max_tokens=Max_TOKENS)
+    
 
     try:
         response = llm_education.invoke([system_prompt] + messages, config)
 
-        print("Education Response Token Usage:", response.usage_metadata)
-
         token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
         token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
+        print("\Certification Node Token Usage:", response.usage_metadata)
 
         return {"messages": [response]}
     except Exception as e:
-        print("Error occurred while calling education model:", e)
+        print("Error occurred while calling Certification model:", e)
         # return {"messages": [HumanMessage(content="An error occurred while processing your request.")]}
 
 
@@ -123,19 +122,19 @@ def should_continue(state: SwarmResumeState):
 workflow = StateGraph(SwarmResumeState)
 
 # Add nodes
-workflow.add_node("education_model", call_education_model)
+workflow.add_node("certification_model", call_education_model)
 workflow.add_node("tools", ToolNode(tools))
 
 # Entry point
-workflow.set_entry_point("education_model")
+workflow.set_entry_point("certification_model")
 
 # Conditional edges
 workflow.add_conditional_edges(
-    "education_model",
+    "certification_model",
     should_continue,
     {"continue": "tools", "end": END}
 )
-workflow.add_edge("tools", "education_model")
+workflow.add_edge("tools", "certification_model")
 
-education_assistant = workflow.compile(name="education_assistant")
-education_assistant.name = "education_assistant"
+certification_assistant = workflow.compile(name="certification_assistant")
+certification_assistant.name = "certification_assistant"

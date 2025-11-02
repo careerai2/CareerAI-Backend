@@ -1,8 +1,8 @@
-"""create msg tables
+"""add chatmsg table
 
-Revision ID: fc8c871f5dd7
-Revises: cecc37747a91
-Create Date: 2025-08-11 12:56:02.053780
+Revision ID: 91fd119808af
+Revises: 
+Create Date: 2025-10-30 00:08:09.602400
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'fc8c871f5dd7'
-down_revision: Union[str, Sequence[str], None] = 'cecc37747a91'
+revision: str = '91fd119808af'
+down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

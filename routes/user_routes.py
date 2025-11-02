@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request,Depends,Form
+from fastapi import APIRouter, Request,Depends,Form,Query
 from controllers.user_controller import *
 from sqlalchemy.ext.asyncio import AsyncSession
 from validation.user_types import * 
@@ -65,17 +65,17 @@ async def delete_resume(
 
 
 
+@router.get("/get-resume-chat-history/{resume_id}")
+async def get_resume_chat_history(
+    resume_id: str,
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    before: Optional[datetime] = Query(None, description="Fetch messages older than this timestamp"),
+    session: AsyncSession = Depends(get_postgress_db)
+):
+    user_id = request.state.user["_id"]
+    return await get_resume_chat_msgs(resume_id, str(user_id), session, limit, before)
 
-# @router.get("/get-resume-chat-history/{resume_id}")
-# async def get__msgs(
-#     resume_id: str,
-#     request: Request,
-#     session: AsyncSession = Depends(get_postgress_db)
-# ):
-#     user_id = request.state.user["_id"]
-#     resume_id_str = str(resume_id) # converted MongoDB ObjectId to string
-#     user_id_str = str(user_id)     # '''''
-#     return await get_resume_chat_msgs(resume_id_str, user_id_str, session)
 
 
 @router.get("/get-all-resume")

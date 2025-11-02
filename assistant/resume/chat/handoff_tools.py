@@ -49,6 +49,12 @@ transfer_to_acads_agent = create_handoff_tool(
 )
 
 
+transfer_to_certification_assistant_agent = create_handoff_tool(
+    agent_name="certification_assistant",
+    description="Transfer user to the Certifications assistant to collect Certification details details and manage it in resume."
+)
+
+
 
 # # Code for custome handoff tool
 # def education_handoff_tool(*, agent_name: str, name: str | None, description: str | None) -> BaseTool:

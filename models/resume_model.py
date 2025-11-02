@@ -69,12 +69,12 @@ class ExtraCurricular(BaseModel):
     activity: Optional[str] = None
     position: Optional[str] = None
     description: Optional[str] = None
-    year: Optional[int] = None
+    year: Optional[str] = None
 
 class Certification(BaseModel):
     certification: Optional[str] = None
     issuing_organization: Optional[str] = None
-    time_of_certification: Optional[int] = None
+    time_of_certification: Optional[str] = None
 
 class ResumeInput(BaseModel):
     input_text: Optional[str] = None
