@@ -197,7 +197,7 @@ async def reorder_Tool(
         print(f"❌ Error reordering extra_curriculars for user: {e}")
 
 
-
+import jsonpatch
 
 @tool
 async def send_patches(
@@ -207,17 +207,17 @@ async def send_patches(
     config: RunnableConfig
 ):
     """
-    Apply JSON Patch (RFC 6902) operations to the extra_curriculars section.
+    - Apply list of JSON Patches (RFC 6902) operations.
+    - Ensures all operations (add, replace, remove, move, copy) are valid and aligned with the correct index.
+    - Updates backend storage and syncs changes to the frontend automatically.
 
-    - Works with the full extra_curriculars list.
-    - Generates valid list-level patches for each entry.
-    - Keeps backend and frontend in sync automatically.
+
 
     Example:
     [
        
-        {"op": "replace", "path": "/1/description", "value": "Coordinated 50+ volunteers for campus events"},
-        {"op": "add", "path": "/-", "value": { "activity": "Robotics Club",
+        {"op": "replace", "path": "/1/description", "value": "Coordinated 50+ volunteers for campus events"}, # update
+        {"op": "add", "path": "/-", "value": { "activity": "Robotics Club",                       # add at end
             "position": "Team Lead",
             "description": "Designed and built autonomous robots for regional competitions",
             "year": "2023"
@@ -238,18 +238,13 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
         
-        current_entry_length = 0
+        current_entries = state["resume_schema"].model_dump().get("extra_curriculars", [])
         
-        if state["resume_schema"]:
-            current_entries = getattr(state["resume_schema"], "extra_curriculars", []) or []
-            current_entry_length = len(current_entries)
-
-        # print(f"Current acads entries count: {current_entry_length}")
-
-        check_patch_result = check_patch_correctness(patches, current_entry_length)
-        
-        if check_patch_result != True:
-            raise ValueError("Something Went Wrong, Try Again")
+        try:
+            jsonpatch.apply_patch(current_entries, patches,in_place=False)
+            print(f"Applied patch list to internships: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            raise ValueError(f"Invalid JSON Patch operations: {e}")
         
         # ✅ Apply patches to backend storage
         # result = await apply_patches(f"{user_id}:{resume_id}", patches)
@@ -260,10 +255,9 @@ async def send_patches(
         if result and result.get("status") == "success":
             return {"messages": [
                 ToolMessage(
-                content="Patches applied successfully.",
-                name="system_feedback",
+                content="Successfully transferred to the pipeline to add the patches in an enhanced manner.",
+                name="send_patches",
                 tool_call_id=tool_call_id,
-                metadata={"end_workflow": True}
             )       
             ]}
         

@@ -254,7 +254,7 @@ async def reorder_Tool(
 
 
 from ..llm_model import SwarmResumeState
-
+import jsonpatch
 
 @tool
 async def send_patches(
@@ -264,19 +264,20 @@ async def send_patches(
     config: RunnableConfig
 ):
     """
-    Apply JSON Patch (RFC 6902) operations to the certication section.
+        - Apply list of JSON Patches (RFC 6902) operations to the education section of the resume.
+        - Ensures all operations (add, replace, remove, move, copy) are valid and aligned with the correct education index.
+        - Updates backend storage and syncs changes to the frontend automatically.
 
-    - Works with the full project list.
-    - Generates valid list-level patches for each entry.
-    - Keeps backend and frontend in sync automatically.
-
-    Example:
-    [
-        {"op": "replace", "path": "/0/college", "value": "Indian Institute of Technology, Delhi"},
-        {"op": "replace", "path": "/1/degree", "value": "Bachelor of Technology in Computer Science"},
-        {"op": "add", "path": "/-", "value": {"college": "National Institute of Technology, Warangal", "degree": "Bachelor of Technology in Electrical Engineering", "cgpa": "7.5"}}
-    ]
+        Example patches:
+        [
+            {"op": "replace", "path": "/0/cgpa", "value": "8.6"},                                   # modify field
+            {"op": "add", "path": "/-", "value": {"institution": "IIT Delhi", "degree": "B.Tech"}},  # add new entry
+            {"op": "remove", "path": "/1"},                                                         # remove education
+            {"op": "move", "from": "/2", "path": "/0"},                                             # reorder entries
+            {"op": "copy", "from": "/0/degree", "path": "/1/prev_degree"}                           # copy a field
+        ]
     """
+
 
     try:
         print("PATCH:", patches)
@@ -291,18 +292,15 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
         
-        current_entry_length = 0
         
-        if state["resume_schema"]:
-            current_entries = getattr(state["resume_schema"], "education_entries", []) or []
-            current_entry_length = len(current_entries)
+  
+        current_entries = state["resume_schema"].model_dump().get("education_entries", [])   
 
-        # print(f"Current acads entries count: {current_entry_length}")
-
-        check_patch_result = check_patch_correctness(patches, current_entry_length)
-        
-        if check_patch_result != True:
-            raise ValueError("Something Went Wrong, Try Again")
+        try:
+            jsonpatch.apply_patch(current_entries, patches,in_place=False)
+            print(f"Applied patch list to internships: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            raise ValueError(f"Invalid JSON Patch operations,: {e}")
         
         # ✅ Apply patches to backend storage
         # result = await apply_patches(f"{user_id}:{resume_id}", patches)
@@ -316,7 +314,6 @@ async def send_patches(
                 content="Education Patches applied successfully.",
                 name="system_feedback",
                 tool_call_id=tool_call_id,
-                metadata={"end_workflow": True}
             )       
             ]}
         
@@ -339,6 +336,7 @@ async def send_patches(
             ),
             name="system_feedback",
             tool_call_id=tool_call_id,
+            status="error",
         )
 
         # ❌ Do not raise ToolException if you want router to handle it

@@ -15,7 +15,7 @@ import json
 from .functions import apply_patches,new_query_pdf_knowledge_base
 import re
 from .mappers import FIELD_MAPPING
-
+from toon import encode
 # ---------------------------
 # 2. LLM with Tools
 # ---------------------------
@@ -54,22 +54,33 @@ async def call_acads_model(state: SwarmResumeState, config: RunnableConfig):
 
         # Give LLM a short controlled prompt to reply politely
         recovery_prompt = f"""
-            The last acads patch operation failed with: '{error_msg}'.
-            You have access to all tools, including send_patches.
+    The last patch operation failed with error: '{error_msg}'.
+    Here’s the failed patch attempt:
+    {state["acads"]["patches"] if "patches" in state["acads"] else "No patches available."}
+    
+    You know the previous patch and you have full access to all tools including `send_patches`.
 
-            Rules for your response:
-            1. Try to fix the issue automatically using the available tools (e.g., retry sending the patch).
-            2. If automatic recovery is not possible, politely inform the user about the failure without revealing internal or technical details.
-            3. Do NOT mention your identity, the identity of other agents, or that you are an AI/model/assistant.
-            4. If a transfer or handoff is needed, perform it silently; do not notify or ask the user.
-            5. Keep the response concise, polite, and human-like.
-            """
+    Your job is to **fix it right now**.
+    
+    
+
+    Instructions:
+    1. Analyze the failure reason logically. Don't whine — just figure out why it broke.
+    2. Construct a **correct and minimal patch** that fixes the issue. Then call `send_patches` with the proper JSON Patch array.
+    3. If the problem cannot be fixed automatically, stop wasting time and politely tell the user that the update could not be completed, without exposing technical jargon.
+    4. Never mention that you’re an AI or model. You are simply part of the resume system.
+    5. Do not show or return the raw tool messages to the user.
+    6. Stay calm and brief — act like a capable colleague cleaning up a mistake, not a chatbot explaining itself.
+
+    Goal:
+    Recover from the error if possible, else respond with a short, polite failure note.
+    """
 
         
         messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKEN)
         # Make it human-like using the same LLM pipeline
         response = await llm_acads.ainvoke([recovery_prompt], config)
-        print("internship_model (error recovery) response:", response.content)
+        print("Acad_model (error recovery) response:", response.content)
         
         
          # Reset error so it doesn’t loop forever
@@ -84,38 +95,88 @@ async def call_acads_model(state: SwarmResumeState, config: RunnableConfig):
     
   
     
+    # system_prompt = SystemMessage(
+    # content=dedent(f"""
+    #     You are a Human like Academic Project Assistant for a Resume Builder.
+    #     Your role: Help users add and modify their academic project section in the resume **(Current entries provided to You so start accordingly)** & also help refine and optimize the academic project section with precision, brevity, and tailoring.
+
+    #     --- Workflow ---
+    #     • Ask one clear, single-step question at a time.
+    #     • **Always immediately apply any user-provided information using `send_patches`,because you may get out of **context** so **make changes**. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
+    #     • Use tools as needed; refer to their descriptions to know what they do.
+    #     • Never reveal your identity or the identity of any other agent. Do not mention being an AI, model, or assistant. If a transfer or handoff is required, perform it silently without notifying or asking the user. Always behave as a human assistant..
+    #     • **While generating patches for project bullets, keep in mind that `description_bullets` is actually an array of strings like ["", ""] — so create your patches accordingly.**
+    #     • Always apply patches directly to the entire `academic_projects` section (list) — not individual entries.
+    #     • Keep outputs concise (~60–70 words max).
+    #     • For each project, aim to get 3 pieces of information: what the user built, how they built it (tools, methods, or approach), and what result or functionality was achieved.
+    #     • DO NOT ask about rewards, challenges, learnings, or feelings.
+    #     • The `send_patches` tool will validate your generated patches; if patches are not fine, it will respond with an error, so you should retry generating correct patches.
+    #     • If `send_patches` returns an error, you must either retry generating correct patches or ask the user for clarification before proceeding.
+    #     • If you are sure about new additions or updates, you may add them directly without asking for user confirmation.
+
+    #    --- Schema ---
+    #         {{project_name,description_bullets[], duration}}
+
+    #     --- Current Entries (It is visible to Human) ---
+    #     Always use the following as reference when updating academic projects:
+    #     {current_entries}
+
+    #     --- Guidelines ---
+    #     Always use correct indexes for the projects.
+    #     Focus on clarity, brevity, and alignment with {tailoring_keys}.
+    #      • Resume updates are **auto-previewed** — **never show raw code or JSON changes**.  
+    #         - This means the **current entries are already visible to the user**, so you should **not restate them** and must keep that in mind when asking questions or making changes.
+    # """))
     system_prompt = SystemMessage(
     content=dedent(f"""
-        You are a Human like Academic Project Assistant for a Resume Builder.
-        Your role: Help users add and modify their academic project section in the resume **(Current entries provided to You so start accordingly)** & also help refine and optimize the academic project section with precision, brevity, and tailoring.
+    You are a **Fast, Accurate, and Obedient Academic Project Assistant** for a Resume Builder.
+    Manage the Academic Project section. Each entry may include: project_name, duration, and description_bullets[] (array of strings).
 
-        --- Workflow ---
-        • Ask one clear, single-step question at a time.
-        • **Always immediately apply any user-provided information using `send_patches`,because you may get out of **context** so **make changes**. Do not wait for confirmation, except when deleting or overwriting existing entries. This must never be skipped.**
-        • Use tools as needed; refer to their descriptions to know what they do.
-        • Never reveal your identity or the identity of any other agent. Do not mention being an AI, model, or assistant. If a transfer or handoff is required, perform it silently without notifying or asking the user. Always behave as a human assistant..
-        • **While generating patches for project bullets, keep in mind that `description_bullets` is actually an array of strings like ["", ""] — so create your patches accordingly.**
-        • Always apply patches directly to the entire `academic_projects` section (list) — not individual entries.
-        • Keep outputs concise (~60–70 words max).
-        • For each project, aim to get 3 pieces of information: what the user built, how they built it (tools, methods, or approach), and what result or functionality was achieved.
-        • DO NOT ask about rewards, challenges, learnings, or feelings.
-        • The `send_patches` tool will validate your generated patches; if patches are not fine, it will respond with an error, so you should retry generating correct patches.
-        • If `send_patches` returns an error, you must either retry generating correct patches or ask the user for clarification before proceeding.
-        • If you are sure about new additions or updates, you may add them directly without asking for user confirmation.
+    --- CORE DIRECTIVE ---
+    • Apply every change **immediately**. Never wait for multiple fields. Immediate means immediate.
+    • Always send patches (send_patches) first, then confirm briefly in text.
+    • Always verify the correct target before applying patches — honesty over speed.
+    • Every single data point (even one field) must trigger an immediate patch and confirmation. Never delay for additional info.
+    • Do not show code, JSON, or tool names. You have handoff Tools to other assistant agents if needed. Do not reveal them & yourself. You all are part of the same system.
+    • Keep responses short and direct. Never explain yourself unless asked.
 
-       --- Schema ---
-            {{project_name,description_bullets[], duration}}
+    --- Current entries ---
+    {encode(current_entries)}
 
-        --- Current Entries (It is visible to Human) ---
-        Always use the following as reference when updating academic projects:
-        {current_entries}
+    --- PROJECT RULES ---
+    R1. Patch the academic_projects list directly.
+    R2. Never Modify or delete any existing piece of information in current entries unless told, **pause and ask once for clarification**. Never guess.
+    R3. Focus on one project entry at a time.
+    R4. Use concise bullet points: ["Action, approach, outcome.", ...].
+    R5. Confirm updates only after patches are sent.
+    R6. If entry or operation is unclear, ask once. Never guess.
+    
+    --- LIST FIELD HANDLING ---
+    • For any array field (like description_bullets):
+        - Use "replace" if the list exists.
+        - Use "add" (path "/0/.../-") if the list is empty or missing.
+        - Always verify that the target internship entry exists before patching.
+    • Never assume the list exists. Check first using above `Current entries`.
 
-        --- Guidelines ---
-        Always use correct indexes for the projects.
-        Focus on clarity, brevity, and alignment with {tailoring_keys}.
-         • Resume updates are **auto-previewed** — **never show raw code or JSON changes**.  
-            - This means the **current entries are already visible to the user**, so you should **not restate them** and must keep that in mind when asking questions or making changes.
-    """))
+    --- USER INTERACTION ---
+    • Respond in a friendly, confident, and helpful tone.
+    • Be brief but polite — sound like a skilled assistant, not a robot.
+    • If data unclear or bullets weak, ask sharp follow-ups. Aim: flawless Academic Project entry for target role = {tailoring_keys}.
+    • Maintain conversational flow while strictly following patch rules.
+    • Don't mention system operations, patches, etc., or your/other agents identity.
+    • If unclear (except internal reasoning), ask before modifying.
+    • Never say “Done” or confirm success until the tool result confirms success. If the tool fails, retry or ask the user.
+    • All entries and their updates are visible to user,so no need to repeat them back. 
+
+    --- OPTIMIZATION GOAL ---
+    Output impactful project bullets emphasizing:
+        - **Action** (what you did)
+        - **Approach** (how you did it — tools, methods)
+        - **Outcome** (result or impact)
+    Skip “challenges” or “learnings.”
+    """)
+)
+
 
 
 
@@ -440,7 +501,6 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         if result and result.get("status") == "success":
             print("Entry state updated successfully in Redis.")
             state["acads"]["save_node_response"] = f"patches applied successfully on fields {', '.join(patch_field)}."
-            state["acads"]["patches"] = []  
             return {"next_node": "end_node"}
         
         elif result and result.get("status") == "error":
@@ -502,31 +562,31 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
         # )
         
         system_prompt = SystemMessage(
-            content=dedent(f"""
-            You are a human-like Academic Project Assistant for a Resume Builder.
+    content=dedent(f"""
+    You are a friendly, human-like **Academic Project Assistant** for a Resume Builder.  
+    You appear **after patches are applied**, to acknowledge progress and encourage the user forward.
 
-            Focus solely on engaging the user in a supportive, professional, and encouraging manner. 
-            Do not repeat, edit, or reference any project entries or technical details.
+    --- CONTEXT ---
+    Latest patches: {state["acads"]["patches"] if state["acads"]["patches"] else "None"}
 
-            Last node message: {save_node_response if save_node_response else "None"}
+    --- BEHAVIOR RULES ---
+    • If patches exist → acknowledge briefly and positively.  
+    • If none → ask one relevant guiding question (from list below).  
+    • Never restate content or mention patches, tools, or edits.  
+    • Keep replies under 25 words, polite, and natural.  
+    • Stay focused — no random or unrelated questions.
 
-            --- Guidelines for this node ---
-            • Be warm, concise, and positive.
-            • DO NOT ask about rewards, challenges, learnings, or feelings.
-            • ONLY ask one of the following questions if necessary:
-              - "What would you like to fill next?"
-              - "Is there anything else you'd like to update or add?"
-              - "Would you like to add impact and outcome for this experience?"
-              - "Would you like to refine any part of this Project further?"
-              - "Do you want to add any specific tools or technologies you used here?"
-              - "Would you like to include measurable results or achievements ?"
-              - "Nice work! Want to expand this part a bit more ?"
-              - "Would you like to summarize this experience in one strong sentence ?"
-              - "Should I help you make this point more impactful?"
-            • Never mention patches, edits, or technical updates—simply acknowledge the last node response if relevant.
-            • Your primary goal is to motivate and encourage the user to continue improving their resume.
-            """)
-        )
+    --- ALLOWED QUESTIONS ---
+    1. "Would you like to add impact or measurable results for this project?"
+    2. "Do you want to include tools or technologies you used here?"
+    3. "Would you like to refine any part of this project further?"
+    4. "Would you like to summarize this project in one strong sentence?"
+    5. "Is there anything else you'd like to add or update?"
+
+    Your goal: acknowledge progress and keep the user improving their academic project section naturally.
+    """)
+)
+
         
         
 
@@ -541,6 +601,8 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
                 
         if save_node_response:
             state["acads"]["save_node_response"] = None  # Clear after using
+
+        state["acads"]["patches"] = []  
         
 
         # Update token counters
@@ -560,7 +622,13 @@ def End_node(state: SwarmResumeState, config: RunnableConfig):
    
 
 
-        return {"messages": [response]}
+        return {"messages": [response],
+                "acads":{
+                    "patches": [],
+                    "retrieved_info": "",
+                    "generated_query": "",
+                    "save_node_response": None,
+                }}
     except Exception as e:
         print("Error in End_node:", e)
         

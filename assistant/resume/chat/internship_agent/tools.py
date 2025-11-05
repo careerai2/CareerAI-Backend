@@ -682,6 +682,8 @@ class entryStateInput(BaseModel):
 import jsonpatch
 from assistant.resume.chat.utils.patch_validator import  validate_list_patches
 
+
+
 @tool
 async def send_patches(
     patches: list[dict],
@@ -690,20 +692,23 @@ async def send_patches(
     config: RunnableConfig
 ):
     """
-    Apply JSON Patch (RFC 6902) operations to the internships section of the resume.
-
-    - Has full context of the current internships list.
-    - Automatically generates patches with correct list-level paths for each internship and its fields.
-    - Ensures all operations (add, replace, remove) are valid and aligned with the correct internship index.
+    - Apply list of JSON Patches (RFC 6902) operations to the internships section of the resume.
+    - Ensures all operations (add, replace, remove, move, copy) are valid and aligned with the correct internship index.
     - Updates backend storage and syncs changes to the frontend automatically.
 
-    Example patch:
+    Example patches:
     [
-        {"op": "replace", "path": "/0/company_name", "value": "CareerAi"},
-        {"op": "replace", "path": "/1/role", "value": "Software Intern"},
-        {"op": "add", "path": "/-", "value": {"company_name": "OpenAI", "role": "ML Intern"}}
+        {"op": "replace", "path": "/0/company_name", "value": "CareerAi"},                     # modify field
+        {"op": "add", "path": "/-", "value": {"company_name": "OpenAI", "role": "ML Intern"}}, # add new internship
+        {"op": "remove", "path": "/1"},                                                        # remove internship
+        {
+    "op": "add",                                                                               # adding first bullet point to an internship at index 0 
+    "path": "/0/internship_work_description_bullets/-",
+    "value": "Designed a database from scratch for the organization's admin portal using Redis, NoSQL, and SQL for optimized data management and speed."
+  }
     ]
     """
+
 
     try:
         print("PATCH:", patches)
@@ -722,8 +727,7 @@ async def send_patches(
         current_entry_length = 0
         
         if not state["resume_schema"]:
-            raise ValueError("Resume schema state not initialized.")
-            
+            raise ValueError("Resume schema state not initialized.")    
 
         # print(f"Current internship entries count: {current_entry_length}")
 
@@ -731,6 +735,7 @@ async def send_patches(
         
         # if check_patch_result != True:
         #     raise ValueError("Something Went Wrong, Try Again")
+
         
         current_internships = state["resume_schema"].model_dump().get("internships", [])
 
@@ -747,9 +752,10 @@ async def send_patches(
             raise ValueError(f"Invalid JSON Patch operations: {e}")
 
         tool_message = ToolMessage(
-            content="Successfully transferred to query_generator_model",
-            name="handoff_to_internship_model",
+            content="Successfully transferred to the pipeline to add the patches in an enhanced manner.",
             tool_call_id=tool_call_id,
+            name="send_patches",
+            status="success"
         )
 
         # ✅ Success structure
@@ -763,31 +769,28 @@ async def send_patches(
                 }
             },
         )
-
+        
     except Exception as e:
         print(f"❌ Error applying internship entry patches: {e}")
 
-        fallback_error_msg = f"Error in send_patches tool: {e}"
+        # Create a detailed feedback ToolMessage
         fallback_msg = ToolMessage(
-            content=(
-                f"""The send_patches tool failed due to: {e}. 
-                Please either retry generating valid patches or inform the user 
-                that the update could not be applied."""
-            ),
-            name="system_feedback",
+            content=f"The send_patches tool failed due to: {str(e)}",
+            name="send_patches",              # or "system_feedback"
             tool_call_id=tool_call_id,
+            status="error"
         )
+        fallback_error_msg = f"Error in send_patches tool: {e}"
 
-        # ❌ Do not raise ToolException if you want router to handle it
+        # ✅ Return a Command that routes back to the calling agent node
         return Command(
-            goto="internship_model",
+            goto="internship_model",          # returns control to the same node that called this tool
             update={
-                "messages": [fallback_msg],
+                "messages": [fallback_msg],   # required for _validate_tool_command
                 "internship": {
                     "error_msg": fallback_error_msg,
                     "patches": patches,
                 }
-                
             },
         )
 
@@ -799,8 +802,8 @@ tools = [
     # update_index_and_focus,
     # transfer_to_enhancer_pipeline,
     # transfer_to_update_internship_agent,
-         reorder_bullet_points_tool,
-         reorder_Tool,
+        #  reorder_bullet_points_tool,
+        #  reorder_Tool,
         # internship_bullet_tool,
         # human_assistance,
         # use_knowledge_base,

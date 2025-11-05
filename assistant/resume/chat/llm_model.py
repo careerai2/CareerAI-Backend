@@ -20,7 +20,8 @@ llm = ChatGoogleGenerativeAI(
 # from langchain_openai import ChatOpenAI
 
 # llm = ChatOpenAI(
-#     model="gpt-5-nano",   # ✅ or "gpt-5-nano" if your account has access
+#     # model="gpt-5-nano",   # ✅ or "gpt-5-nano" if your account has access
+#     model="gpt-4o-mini-2024-07-18",   # ✅ or "gpt-5-nano" if your account has access
 #     # temperature=0,
 #     max_tokens=1024
 # )

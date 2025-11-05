@@ -14,7 +14,7 @@ from ..handoff_tools import *
 from redis_config import redis_client as r
 from ..llm_model import SwarmResumeState
 from .functions import apply_patches
-
+import jsonpatch
 
 
 
@@ -26,17 +26,16 @@ async def send_patches(
     config: RunnableConfig
 ):
     """
-    Apply JSON Patch (RFC 6902) operations to the certication section.
+    - Apply list of JSON Patches (RFC 6902) operations.
+    - Ensures all operations (add, replace, remove, move, copy) are valid and aligned with the correct index.
+    - Updates backend storage and syncs changes to the frontend automatically.
 
-    - Works with the full project list.
-    - Generates valid list-level patches for each entry.
-    - Keeps backend and frontend in sync automatically.
 
-    Example:
+    Example Patches:
     [
-        {"op": "replace", "path": "/0/certification", "value": "AWS Certified Solutions Architect"},
+        {"op": "replace", "path": "/0/certification", "value": "AWS Certified Solutions Architect"}, # update
         {"op": "replace", "path": "/1/issuing_organization", "value": "Amazon Web Services"},
-        {"op": "add", "path": "/-", "value": {"certification": "Data Analyst", "issuing_organization": "Coursera", "time_of_certification": "2023-05"}}
+        {"op": "add", "path": "/-", "value": {"certification": "Data Analyst", "issuing_organization": "Coursera", "time_of_certification": "2023-05"}} # add at end
     ]
     """
 
@@ -53,21 +52,16 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
         
-        current_entry_length = 0
+        current_entries = state["resume_schema"].model_dump().get("certifications", [])
         
-        if state["resume_schema"]:
-            current_entries = getattr(state["resume_schema"], "certifications", []) or []
-            current_entry_length = len(current_entries)
+        try:
+            jsonpatch.apply_patch(current_entries, patches,in_place=False)
+            print(f"Applied patch list to internships: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            raise ValueError(f"Invalid JSON Patch operations: {e}")
 
-        # print(f"Current acads entries count: {current_entry_length}")
-
-        check_patch_result = check_patch_correctness(patches, current_entry_length)
         
-        if check_patch_result != True:
-            raise ValueError("Something Went Wrong, Try Again")
-        
-        # ✅ Apply patches to backend storage
-        # result = await apply_patches(f"{user_id}:{resume_id}", patches)
+   
         result = await apply_patches_global(f"{user_id}:{resume_id}", patches,"certifications")
         
         print("Apply patches result:", result)
@@ -75,11 +69,10 @@ async def send_patches(
         if result and result.get("status") == "success":
             return {"messages": [
                 ToolMessage(
-                content="✅ Certification section updated successfully.",
-                name="system_feedback",
-                tool_call_id=tool_call_id,
-                metadata={"end_workflow": True}
-            )       
+            content="Successfully transferred to the pipeline to add the patches in an enhanced manner.",
+            name="send_patches",
+            tool_call_id=tool_call_id,
+        )    
             ]}
         
         elif result and result.get("status") == "error":
@@ -99,7 +92,7 @@ async def send_patches(
                 Please either retry generating valid patches or inform the user 
                 that the update could not be applied."""
             ),
-            name="system_feedback",
+            name="send_patches",
             tool_call_id=tool_call_id,
         )
 

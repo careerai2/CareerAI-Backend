@@ -338,6 +338,7 @@ async def reorder_responsibilities_tool(
         print(f"❌ Error reordering responsibilities: {e}")
         return {"status": "error", "message": str(e)}
 
+import jsonpatch
 
 @tool
 async def send_patches(
@@ -347,21 +348,23 @@ async def send_patches(
     config: RunnableConfig
 ):
     """
-    Apply JSON Patch (RFC 6902) operations to the academic Project section of the resume.
-
-    - Has full context of the current academic Project list.
-    - Automatically generates patches with correct list-level paths for each internship and its fields.
-    - Ensures all operations (add, replace, remove) are valid and aligned with the correct internship index.
+    - Apply list of JSON Patches (RFC 6902) operations to the academic projects section of the resume.
+    - Ensures all operations (add, replace, remove, move, copy) are valid and aligned with the correct project index.
     - Updates backend storage and syncs changes to the frontend automatically.
 
-    Example patch:
+    ```
+    Example patches:
     [
-        {"op": "replace", "path": "/0/project_name", "value": "CareerAi"},
-        {"op": "replace", "path": "/1/duration", "value": "june 2022 - august 2022"},
-        {"op": "add", "path": "/-", "value": {"project_name": "OpenAI", "duration": "july 2023 - present"}}
+        {"op": "replace", "path": "/0/project_name", "value": "CareerAI"},                         # modify field
+        {"op": "replace", "path": "/1/duration", "value": "June 2022 - August 2022"},              # update duration
+        {"op": "add", "path": "/-", "value": {"project_name": "OpenAI", "duration": "July 2023 - Present"}}, # add new project
+        {"op": "remove", "path": "/2"},                                                            # remove project
+        {"op": "move", "from": "/1", "path": "/0"}                                                 # reorder projects
     ]
+    ```
+
     """
-    
+
     try:
         print("PATCH:", patches)
         
@@ -375,22 +378,23 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
         
-        current_entry_length = 0
+      
         
-        if state["resume_schema"]:
-            current_entries = getattr(state["resume_schema"], "academic_projects", []) or []
-            current_entry_length = len(current_entries)
+        
+        
+        current_entries = state["resume_schema"].model_dump().get("academic_projects", [])   
 
         # print(f"Current acads entries count: {current_entry_length}")
-
-        check_patch_result = check_patch_correctness(patches, current_entry_length)
-        
-        if check_patch_result != True:
-            raise ValueError("Something Went Wrong, Try Again")
+    # ✅ checking patch validation internships list
+        try:
+            jsonpatch.apply_patch(current_entries, patches,in_place=False)
+            print(f"Applied patch list to internships: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            raise ValueError(f"Invalid JSON Patch operations: {e}")
     
         tool_message = ToolMessage(
-            content="Successfully transferred to query_generator_model",
-            name="handoff_to_query_generator_model",
+            content="Successfully transferred to the pipeline to the patches in a enhanced manner.",
+            name="send_patches",
             tool_call_id=tool_call_id,
         )
 
@@ -419,6 +423,7 @@ async def send_patches(
             ),
             name="system_feedback",
             tool_call_id=tool_call_id,
+            status="error"
         )
 
         # ❌ Do not raise ToolException if you want router to handle it

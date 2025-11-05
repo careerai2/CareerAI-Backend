@@ -397,7 +397,7 @@ async def get_entry_by_company_name(
         return {"status": "error", "message": str(e)}
 
 
-
+import jsonpatch
 
 @tool
 async def send_patches(
@@ -407,19 +407,29 @@ async def send_patches(
     config: RunnableConfig
 ):
     """
-    Apply JSON Patch (RFC 6902) operations to the academic Project section of the resume.
-
-    - Has full context of the current academic Project list.
-    - Automatically generates patches with correct list-level paths for each internship and its fields.
-    - Ensures all operations (add, replace, remove) are valid and aligned with the correct internship index.
+    - Apply list of JSON Patches (RFC 6902) operations to the POR section of the resume.
+    - Ensures all operations (add, replace, remove, move, copy) are valid and aligned with the correct internship index.
     - Updates backend storage and syncs changes to the frontend automatically.
-
-    Example patch:
+    
+    ```json
+    
+    Example patches:
     [
-        {"op": "replace", "path": "/0/project_name", "value": "CareerAi"},
-        {"op": "replace", "path": "/1/duration", "value": "june 2022 - august 2022"},
-        {"op": "add", "path": "/-", "value": {"project_name": "OpenAI", "duration": "july 2023 - present"}}
+        {"op": "replace", "path": "/0/role", "value": "Full Stack Developer"},                                   # update role at index 0
+        {"op": "replace", "path": "/0/organization", "value": "CareerAI"},                                       # update organization name
+        {"op": "replace", "path": "/0/duration", "value": "June 2022 - August 2022"},                            # modify duration
+        {"op": "replace", "path": "/0/responsibilities/1", "value": "Integrated APIs and optimized backend performance"},  # update specific responsibility in array
+
+        {"op": "add", "path": "/-", "value": {                                                                   # add new experience entry
+            "role": "Software Engineer Intern",
+            "duration": "July 2023 - Present",
+            "responsibilities": [
+                "Developed microservices for user management",
+            ]
+        }}
     ]
+    ```
+
     """
     
     try:
@@ -435,21 +445,25 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
 
-        if state["resume_schema"]:
-            current_entries = getattr(state["resume_schema"], "positions_of_responsibility", []) or []
-            current_entry_length = len(current_entries)
+        current_entries = state["resume_schema"].model_dump().get("internships", [])
+
+        
+        print(f"Current internships before patch: current_internships")
+        if not isinstance(current_entries, list):
+            current_entries = []
 
         # print(f"Current acads entries count: {current_entry_length}")
 
-        check_patch_result = check_patch_correctness(patches, current_entry_length)
-        
-        if check_patch_result != True:
-            raise ValueError("Something Went Wrong, Try Again")
+        try:
+            jsonpatch.apply_patch(current_entries, patches,in_place=False)
+            print(f"Applied patch list to internships: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            raise ValueError(f"Invalid JSON Patch operations: {e}")
     
         
         tool_message = ToolMessage(
-            content="Successfully transferred to query_generator_model",
-            name="handoff_to_query_generator_model",
+            content="Successfully transferred to the pipeline to add the patches in an enhanced manner.",
+            name="send_patches",
             tool_call_id=tool_call_id,
         )
 
@@ -468,7 +482,6 @@ async def send_patches(
 
     except Exception as e:
         print(f"❌ Error applying por entry patches: {e}")
-        print(f"❌ Error applying internship entry patches: {e}")
 
         fallback_error_msg = f"Error in send_patches tool: {e}"
         fallback_msg = ToolMessage(
@@ -477,7 +490,7 @@ async def send_patches(
                 Please either retry generating valid patches or inform the user 
                 that the update could not be applied."""
             ),
-            name="system_feedback",
+            name="send_patches",
             tool_call_id=tool_call_id,
         )
 

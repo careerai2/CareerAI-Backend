@@ -201,7 +201,7 @@ async def reorder_tool(
         print(f"❌ Error reordering achievements for user: {e}")
 
 
-
+import jsonpatch
 
 
 @tool
@@ -220,9 +220,8 @@ async def send_patches(
 
     Example:
     [
-        {"op": "replace", "path": "/0/title", "value": "Top Performer Award"},
-        {"op": "replace", "path": "/1/description", "value": "Outstanding academic performance in 2022 for 3 consecutive semesters."},
-        {"op": "add", "path": "/-", "value": {"title": "Top 1%", "year": "2023"}}
+        {"op": "replace", "path": "/0/title", "value": "Top Performer Award"},  # update
+        {"op": "add", "path": "/-", "value": {"title": "Top 1%", "year": "2023"}}   # add at end
     ]
     """
 
@@ -239,18 +238,13 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
         
-        current_entry_length = 0
+        current_entries = state["resume_schema"].model_dump().get("achievements", [])
         
-        if state["resume_schema"]:
-            current_entries = getattr(state["resume_schema"], "achievements", []) or []
-            current_entry_length = len(current_entries)
-
-        # print(f"Current acads entries count: {current_entry_length}")
-
-        check_patch_result = check_patch_correctness(patches, current_entry_length)
-        
-        if check_patch_result != True:
-            raise ValueError("Something Went Wrong, Try Again")
+        try:
+            jsonpatch.apply_patch(current_entries, patches,in_place=False)
+            print(f"Applied patch list to internships: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            raise ValueError(f"Invalid JSON Patch operations: {e}")
         
         # ✅ Apply patches to backend storage
         # result = await apply_patches(f"{user_id}:{resume_id}", patches)
@@ -261,10 +255,9 @@ async def send_patches(
         if result and result.get("status") == "success":
             return {"messages": [
                 ToolMessage(
-                content="Patches applied successfully.",
-                name="system_feedback",
+                content="Successfully transferred to the pipeline to add the patches in an enhanced manner.",
+                name="send_patches",
                 tool_call_id=tool_call_id,
-                metadata={"end_workflow": True}
             )       
             ]}
         
@@ -276,7 +269,7 @@ async def send_patches(
         
 
     except Exception as e:
-        print(f"❌ Error applying certification entry patches: {e}")
+        print(f"❌ Error applying Achivement entry patches: {e}")
 
         
         fallback_msg = ToolMessage(
@@ -285,7 +278,7 @@ async def send_patches(
                 Please either retry generating valid patches or inform the user 
                 that the update could not be applied."""
             ),
-            name="system_feedback",
+            name="send_patches",
             tool_call_id=tool_call_id,
         )
 

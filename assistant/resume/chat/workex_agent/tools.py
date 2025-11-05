@@ -12,6 +12,7 @@ from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
 from ..handoff_tools import *
 from ..utils.update_summar_skills import update_summary_and_skills
 from redis_config import redis_client as r
+import jsonpatch
 
 @tool
 def get_compact_work_experience_entries(config: RunnableConfig):
@@ -658,19 +659,33 @@ async def send_patches(
     config: RunnableConfig
 ):
     """
-    Apply JSON Patch (RFC 6902) operations to the internships section of the resume.
-
-    - Has full context of the current internships list.
-    - Automatically generates patches with correct list-level paths for each internship and its fields.
-    - Ensures all operations (add, replace, remove) are valid and aligned with the correct internship index.
+    - Apply list of JSON Patches (RFC 6902) operations to the POR section of the resume.
+    - Ensures all operations (add, replace, remove, move, copy) are valid and aligned with the correct internship index.
     - Updates backend storage and syncs changes to the frontend automatically.
 
-    Example patch:
+    ``` json
+    
+    Example patches:
     [
-        {"op": "replace", "path": "/0/company_name", "value": "CareerAi"},
-        {"op": "replace", "path": "/1/role", "value": "Software Intern"},
-        {"op": "add", "path": "/-", "value": {"company_name": "OpenAI", "role": "ML Intern"}}
+        {"op": "replace", "path": "/0/company_name", "value": "Google LLC"},                                # modify field
+        {"op": "add", "path": "/-", "value": {                                                              # add new work experience
+            "company_name": "OpenAI",
+            "location": "San Francisco, USA",
+            "projects": [
+                {
+                    "project_name": "Real-Time Chat Infrastructure",
+                    "description_bullets": [
+                        "Built scalable WebSocket servers using Node.js and Redis.",
+                        "Reduced message latency by 25% under peak loads."
+                    ]
+                }
+            ]
+        }},
+        {"op": "remove", "path": "/1"},                                                                     # remove a work experience
+        {"op": "move", "from": "/2", "path": "/0"},                                                         # reorder entries
+        {"op": "copy", "from": "/0/projects/0/project_name", "path": "/1/last_project_name"}                 # copy a field
     ]
+    ```
     """
 
     try:
@@ -689,22 +704,22 @@ async def send_patches(
 
         # raise ValueError("Server is down for maintenance. Please try again later.")
     
-        if state["resume_schema"]:
-            current_entries = getattr(state["resume_schema"], "work_experiences", []) or []
-            current_entry_length = len(current_entries)
+        current_entries = state["resume_schema"].model_dump().get("work_experiences", [])
+
 
         # print(f"Current acads entries count: {current_entry_length}")
 
-        check_patch_result = check_patch_correctness(patches, current_entry_length)
-        
-        if check_patch_result != True:
-            raise ValueError("Something Went Wrong, Try Again")
+        try:
+            jsonpatch.apply_patch(current_entries, patches,in_place=False)
+            print(f"Applied patch list to internships: {patches}")
+        except jsonpatch.JsonPatchException as e:
+            raise ValueError(f"Invalid JSON Patch operations: {e}")
     
     
         
         tool_message = ToolMessage(
-            content="Successfully transferred to query_generator_model",
-            name="send_patches_success",
+            content="Successfully transferred to the pipeline to add the patches in an enhanced manner.",
+            name="send_patches",
             tool_call_id=tool_call_id,
         )
 
@@ -730,7 +745,7 @@ async def send_patches(
                 Please either retry generating valid patches or inform the user 
                 that the update could not be applied."""
             ),
-            name="system_feedback",
+            name="send_patches",
             tool_call_id=tool_call_id,
         )
 
