@@ -108,8 +108,33 @@ async def set_user_preferences(
     )
     
     
+@router.put("/save-resume/{resume_id}")
+async def save_resume( resume_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_database)):
+    user_id = request.state.user["_id"]
+    return await save_resume_data(resume_id, user_id, session)
+    
+    
+# - 2 
+# @router.post("/save-resume/{resume_id}")
+# async def save_resume( resume_id: str,
+#     request: Request,
+    
+#     # query parameter to decide whether to delete cache
+#     delCache: bool = Query(False, description="Delete resume cache from Redis if true"),
+    
+#     session: AsyncSession = Depends(get_database)):
+#     user_id = request.state.user["_id"]
+#     new_resume = await request.json()
+    
+#     logger.info(f" Received resume data to save for user {user_id} and resume {resume_id}: {new_resume}")
+#     return await save_resume_data(resume_id, user_id,new_resume, session,delCache=delCache)
+    
+
+    
 @router.put("/export-resume/{resume_id}")
-async def set_user_preferences( resume_id: str,
+async def export_resume( resume_id: str,
     request: Request,
     session: AsyncSession = Depends(get_database)):
     user_id = request.state.user["_id"]

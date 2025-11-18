@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
 import assistant.resume.chat.token_count as token_count
+from log_config import get_logger
+
 
 from assistant.resume.chat.bullet_agent import agent_state, ask_agent_input,call_model
 
@@ -74,7 +76,7 @@ app.include_router(public_router)
 # User Authentication required for user routes
 app.include_router(user_router,dependencies=[Depends(AuthMiddleware)])
 
-
+logger = get_logger("Main App")
 
 @app.websocket("/resume-chat-ws/{resume_id}")
 async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: AsyncSession = Depends(get_postgress_db)):
@@ -103,8 +105,10 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: As
 
             if user_input["type"] == "save_resume":
                 thread_id = f"{user['_id']}:{resume_id}"
+                if user_input.get("meta"):
+                 print("\n\n",user_input["meta"],"\n\n")
+                 logger.info(f" Received Resuem \n\n {user_input["resume"]} \n\n\n")
                 await update_resume(thread_id, user_input["resume"])
-                print("LLM Resume state updated")
                 # await websocket.send_json({"type": "system", "message": "Resume updated in agent state"})
 
             elif user_input["type"] == "undo":

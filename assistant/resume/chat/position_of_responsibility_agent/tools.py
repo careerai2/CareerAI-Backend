@@ -445,10 +445,10 @@ async def send_patches(
         if not patches:
             raise ValueError("Missing 'patches' for state update operation.")
 
-        current_entries = state["resume_schema"].model_dump().get("internships", [])
+        current_entries = state["resume_schema"].model_dump().get("positions_of_responsibility", [])
 
         
-        print(f"Current internships before patch: current_internships")
+        print(f"Current POR before patch: {current_entries}")
         if not isinstance(current_entries, list):
             current_entries = []
 
@@ -456,7 +456,6 @@ async def send_patches(
 
         try:
             jsonpatch.apply_patch(current_entries, patches,in_place=False)
-            print(f"Applied patch list to internships: {patches}")
         except jsonpatch.JsonPatchException as e:
             raise ValueError(f"Invalid JSON Patch operations: {e}")
     

@@ -26,10 +26,13 @@ from utils.send_otp import send_otp_email
 from assistant.resume.parse_userAudio_input import parse_user_audio_input
 from validation.resume_validation import ResumeModel
 from redis_config import redis_client as r 
+from  log_config import get_logger
 
 
 def generate_otp() -> str:
     return str(random.randint(100000, 999999))
+
+logger = get_logger("user_api")
 
 async def signup_user(user_data: UserSignup, db: AsyncIOMotorDatabase):
     try:
@@ -323,67 +326,120 @@ async def create_resume(template: str, tailoring_keys: list[str], user_id: str, 
         )
         
 
+# async def get_resume_by_Id(resume_id: str, user_id: str, db: AsyncIOMotorDatabase):
+#     logger.info("\n\nGet Resume by ID called\n\n")
+#     try:
+#         if not ObjectId.is_valid(resume_id):
+#             return JSONResponse(
+#                 content={"message": "Invalid resume ID"},
+#                 status_code=status.HTTP_400_BAD_REQUEST
+#             )
+
+#         key = f"resume:{user_id}:{resume_id}"
+
+#         # ✅ Step 1: Try Redis first (if exists, use it — draft takes priority)
+#         cached_resume = r.get(key)
+#         if cached_resume:
+#             try:
+#                 if cached_resume:
+#                     resume_data = json.loads(cached_resume)
+#                     logger.info(f"📦 Loaded resume from Redis (draft mode): {resume_id}")
+#                     return JSONResponse(content=resume_data, status_code=status.HTTP_200_OK)
+#             except Exception as e:
+#                 logger.warning(f"Error checking Redis cache: {e}")
+
+#         # ✅ Step 2: Fallback to MongoDB if Redis empty
+#         resume_collection = db.get_collection("resumes")
+#         resume = await resume_collection.find_one({"_id": ObjectId(resume_id), "user_id": user_id})
+
+#         if not resume:
+#             return JSONResponse(
+#                 content={"message": "Resume not found"},
+#                 status_code=status.HTTP_404_NOT_FOUND
+#             )
+
+#         resume_model = ResumeLLMSchema(**resume)
+
+#         # ✅ Step 3: Cache Mongo version ONLY if Redis doesn't already have one
+#         try:
+#             if not r.exists(key):
+#                 r.set(key, json.dumps(convert_objectids(resume_model.model_dump())))
+#         except Exception as e:
+#             print(f"Error caching resume: {e}")
+            
+#         logger.info(f"💾 Loaded resume from MongoDB (no draft found): {resume_id}")
+        
+#         return JSONResponse(content=resume_model.model_dump(), status_code=status.HTTP_200_OK)
+
+#     except Exception as e:
+#         print(f"Error fetching resume: {e}")
+#         return JSONResponse(
+#             content={"message": f"An error occurred while fetching resume: {str(e)}"},
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+#         )
+
+
 async def get_resume_by_Id(resume_id: str, user_id: str, db: AsyncIOMotorDatabase):
+    logger.info("Get Resume by ID called")
+
     try:
-        # Fetch the resume from the database
         if not ObjectId.is_valid(resume_id):
             return JSONResponse(
                 content={"message": "Invalid resume ID"},
                 status_code=status.HTTP_400_BAD_REQUEST
             )
-        
-        try:
-        # Check Redis cache first (Don't forget to delete the cache when updating the resume)
-            cached_resume = r.get(f"resume:{user_id}:{resume_id}")
-            if cached_resume:
-                # print(f"Cache hit for resume {resume_id}")
-                resume_data = json.loads(cached_resume)
-                return JSONResponse(
-                    content=resume_data,
-                    status_code=status.HTTP_200_OK
-                )
-        except Exception as e:
-            print(f"Error checking Redis cache: {e}")
-            # Fallback to database if cache check 
-            
-            
-        # Fetch from MongoDB
-        resume_collection = db.get_collection("resumes")
-        resume = await resume_collection.find_one({"_id": ObjectId(resume_id), "user_id": user_id})
+
+        key = f"resume:{user_id}:{resume_id}"
+
+        # STEP 1: Check Redis only once
+        cached_resume = await r.get(key)
+        if cached_resume is not None:
+            try:
+                data = json.loads(cached_resume)
+                logger.info(f"Loaded resume from Redis (draft)")
+                return JSONResponse(content=data, status_code=200)
+            except:
+                logger.warning("Redis cache was corrupt, ignoring.")
+                return Response(content="Error While getting resume",status_code=500)
+
+        # STEP 2: Fetch from MongoDB
+        resume = await db["resumes"].find_one(
+            {"_id": ObjectId(resume_id), "user_id": user_id}
+        )
 
         if not resume:
             return JSONResponse(
                 content={"message": "Resume not found"},
-                status_code=status.HTTP_404_NOT_FOUND
+                status_code=404
             )
 
-        # Convert to ResumeModel instance
         resume_model = ResumeLLMSchema(**resume)
-        
-        try:
-            # Cache the resume in Redis
-            r.set(f"resume:{user_id}:{resume_id}", json.dumps(convert_objectids(resume_model.model_dump())))
+        mongo_data = convert_objectids(resume_model.model_dump())
 
-        except Exception as e:
-            print(f"Error caching resume: {e}")
-            
+        # STEP 3: Cache only because we KNOW Redis was empty
+        if cached_resume is None:
+            try:
+                await r.setnx(key, json.dumps(mongo_data))
+                logger.info("\n\nCached Mongo resume → Redis\n\n")
+            except Exception as e:
+                logger.error(f"Error caching: {e}")
 
-        return JSONResponse(
-            content=resume_model.model_dump(),
-            status_code=status.HTTP_200_OK
-        )
+        return JSONResponse(content=mongo_data, status_code=200)
 
     except Exception as e:
-        print(f"Error fetching resume: {e}")
+        logger.error(f"Exception: {e}")
         return JSONResponse(
-            content={"message": f"An error occurred while fetching resume: {str(e)}"},
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            content={"message": "Internal server error"},
+            status_code=500
         )
+
 
 
 async def delete_resume_by_Id(resume_id: str, user_id: str, db: AsyncIOMotorDatabase):
     try:
-        r.delete(f"resume:{user_id}:{resume_id}")  # Remove from Redis cache
+        key = f"resume:{user_id}:{resume_id}"
+        if r.exists(key):
+            r.delete(f"resume:{user_id}:{resume_id}")  # Remove from Redis cache
         
         resumes = await db.get_collection("resumes").delete_one({"_id": ObjectId(resume_id), "user_id": user_id})
         if resumes.deleted_count == 0:
@@ -589,6 +645,134 @@ async def get_user_preferences(user_id: int, db: AsyncIOMotorDatabase):
         )
         
 
+# save the resume data in mongodb - 1 (take resume from redis)
+async def save_resume_data(resume_id: str,user_id: str, db: AsyncIOMotorDatabase):
+    try:
+        if not ObjectId.is_valid(resume_id):
+            return JSONResponse(
+                content={"message": "Invalid resume ID"},
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        key = f"resume:{user_id}:{resume_id}"
+        cached_resume = r.get(key)
+        
+        # logger.info(f" Cached Resume:\n\n{cached_resume}\n\n")
+        if(cached_resume is None):
+            return JSONResponse(
+                content={"message": "Resume data not found. Please regenerate the resume."},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        cached_resume_dict = json.loads(cached_resume)
+ 
+        # Filter out only meaningful fields (skip None, empty lists, empty strings)
+        update_fields = {k: v for k, v in cached_resume_dict.items() if v not in (None, [], "")}
+
+
+        # Always update status and timestamp
+        update_fields["updated_at"] = datetime.now().isoformat(timespec="milliseconds") + "Z"
+
+        resume_collection = db.get_collection("resumes")
+        result = await resume_collection.update_one(
+            {"_id": ObjectId(resume_id), "user_id": user_id},  # keep user_id as string
+            {"$set": update_fields}
+        )
+
+        
+        
+        print(type(user_id),type(resume_id))
+        print("Matched:", result.matched_count, "Modified:", result.modified_count)
+
+        if result.matched_count == 0:
+            return JSONResponse(
+                content={"message": "Resume not found or unauthorized"},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        return JSONResponse(
+            content={"message": "Resume data saved and status updated to completed"},
+            status_code=status.HTTP_200_OK
+        )
+
+    except Exception as e:
+        print(f"Error exporting resume data: {e}")
+        return JSONResponse(
+            content={"message": f"An error occurred while exporting resume data: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+        
+      
+      
+# save the resume data in mongodb - 2 (take resume from frontend)
+async def quick_save_resume(resume_id: str,user_id: str,new_resume:dict, db: AsyncIOMotorDatabase,delCache:bool = False):
+    try:
+        if not ObjectId.is_valid(resume_id):
+            return JSONResponse(
+                content={"message": "Invalid resume ID"},
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        if not new_resume:
+            return JSONResponse(
+                content={"message": "No resume data provided"},
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        validated_resume = ResumeLLMSchema(**new_resume)
+        
+        # logger.info(f" Cached Resume:\n\n{cached_resume}\n\n")
+        if(validated_resume is None):
+            return JSONResponse(
+                content={"message": "Resume data not found. Please regenerate the resume."},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        resume_dict = json.loads(validated_resume.model_dump_json())
+ 
+        # Filter out only meaningful fields (skip None, empty lists, empty strings)
+        update_fields = {k: v for k, v in resume_dict.items() if v not in (None, [], "")}
+
+
+        # Always update status and timestamp
+        update_fields["updated_at"] = datetime.now().isoformat(timespec="milliseconds") + "Z"
+
+        resume_collection = db.get_collection("resumes")
+        result = await resume_collection.update_one(
+            {"_id": ObjectId(resume_id), "user_id": user_id},  # keep user_id as string
+            {"$set": update_fields}
+        )
+
+        
+        
+        print(type(user_id),type(resume_id))
+        print("Matched:", result.matched_count, "Modified:", result.modified_count)
+
+        if result.matched_count == 0:
+            return JSONResponse(
+                content={"message": "Resume not found or unauthorized"},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        if(delCache):
+            key = f"resume:{user_id}:{resume_id}"
+            r.delete(key)
+            logger.info(f" Deleted resume cache from Redis for key: {key}")
+
+        return JSONResponse(
+            content={"message": "Resume data saved and status updated to completed"},
+            status_code=status.HTTP_200_OK
+        )
+
+    except Exception as e:
+        print(f"Error exporting resume data: {e}")
+        return JSONResponse(
+            content={"message": f"An error occurred while exporting resume data: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+        
+      
+      
+      
+        
 # put the resume data in mongodb and set its status to completed
 async def export_resume_data(resume_id: str,user_id: str, db: AsyncIOMotorDatabase):
     try:

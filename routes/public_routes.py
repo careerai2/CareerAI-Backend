@@ -1,4 +1,4 @@
-from fastapi import APIRouter,HTTPException,Depends,Request
+from fastapi import APIRouter,HTTPException,Depends,Request,Query
 from controllers.user_controller import signup_user,login_user,google_auth,verify_otp
 from validation.user_types import UserSignup, UserLogin,GoogleAuth_Input,OtpVerification
 from db import get_database
@@ -6,9 +6,12 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from fastapi.responses import RedirectResponse
 from starlette.config import Config
 from authlib.integrations.starlette_client import OAuth
-
-
-
+from sqlalchemy.ext.asyncio import AsyncSession
+from middlewares.verify_user import auth_required
+from utils.verify_token import verify_token
+from controllers.user_controller import quick_save_resume
+import jwt
+import json
 router = APIRouter(prefix="/api/auth", tags=["users"])
 
 
@@ -41,6 +44,55 @@ async def userLogin(user_data: UserLogin, db: AsyncIOMotorDatabase = Depends(get
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+SECRET_KEY = 'your-secret-key'
+@router.post("/resume/quick-save/{resume_id}")
+async def quick_save_resume_beacon(
+    resume_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_database),
+    delCache: bool = Query(False, description="Delete cache flag"),
+):
+    print("Quick save beacon hit for resume_id:", resume_id)
+    try:
+        
+        # read raw payload
+        body = await request.body()
+        if not body:
+            return {"ok": True}  # silent success for beacon
+
+        payload = json.loads(body.decode("utf-8"))
+
+        token = payload.get("token")
+        resume_data = payload.get("data")
+
+        if not token or not resume_data:
+            return {"ok": True}  # silent success
+
+        # decode token (no DB!)
+        try:
+            user = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        except:
+            return {"ok": True}
+
+        user_id = user.get("_id")
+        if not user_id:
+            return {"ok": True}
+
+        # very fast DB write (UPSERT)
+        await quick_save_resume(
+            resume_id,
+            user_id,
+            resume_data,
+            db,
+            delCache
+        )
+
+        return {"ok": True}  # always ok
+
+    except Exception as e:
+        # do NOT raise exceptions in a beacon handler
+        return {"ok": True}
+
     
 # config = Config(".env")
 # oauth = OAuth(config)
@@ -60,13 +112,13 @@ async def userLogin(user_data: UserLogin, db: AsyncIOMotorDatabase = Depends(get
 
 # @router.get("/google-auth", name="google_auth")
 # async def auth(request:Request,db: AsyncIOMotorDatabase = Depends(get_database)):
-    token = await oauth.google.authorize_access_token(request)
-    user = await oauth.google.userinfo(token=token)
-    user_data = GoogleAuth_Input(
-        email=user["email"],
-        name=user.get("name"),
-        picture=user.get("picture"),
-        email_verified=user.get("email_verified", False)
-    )
-    print("User authenticated:", token)
-    return google_auth(user_data, db)
+#     token = await oauth.google.authorize_access_token(request)
+#     user = await oauth.google.userinfo(token=token)
+#     user_data = GoogleAuth_Input(
+#         email=user["email"],
+#         name=user.get("name"),
+#         picture=user.get("picture"),
+#         email_verified=user.get("email_verified", False)
+#     )
+#     print("User authenticated:", token)
+#     return google_auth(user_data, db)

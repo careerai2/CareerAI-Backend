@@ -6,7 +6,7 @@ from models.resume_model import ResumeLLMSchema
 from .utils.common_tools import get_resume,get_graph_state
 from .utils.save_chat_msg import save_chat_message
 from langgraph_swarm import create_swarm
-
+import json
 
 
 
@@ -34,7 +34,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 from .llm_model import SwarmResumeState
 from redis_config import redis_client as r
 from postgress_db import get_postgress_db
+from  log_config import get_logger
 
+
+logger = get_logger("Auto Save")
 
 memory = InMemorySaver()
 
@@ -62,26 +65,32 @@ async def update_resume(thread_id: str, new_resume: dict):
     Updates the resume and Redis, 
     validating against ResumeLLMSchema before saving.
     """
-    
+    logger.info(f"Resume AutoSave triggered for thread_id: {thread_id}")
     # print(new_resume)
     try:
         
-        # print("i m saving")
+       
         # ✅ Step 1: Validate resume against schema
         validated_resume = ResumeLLMSchema(**new_resume)
 
         # ✅ Step 2: Try updating LangGraph state
         # print(validated_resume.model_dump_json())
+        
+     
+        # logger.info(f" Resume in AutoSave:\n\n{validated_resume}\n\n")
        
         key = f"resume:{thread_id}"
-        r.set(key, validated_resume.json())
+        r.set(key,  json.dumps(validated_resume.model_dump()))
+        # r.set(key,  json.dumps(new_resume))
 
-        print(f"Redis updated for {thread_id} by Auto-save")
+        # logger.info(f"✅ Resume updated and saved to Redis with key")
 
     except ValidationError as ve:
-        print(f"❌ Resume validation failed: {ve}")
+        logger.error(f"❌ Resume validation failed: {ve}")
     except Exception as e:
-        print(f"❌ Error updating resume state: {e}")
+        logger.error(f"❌ Error updating resume state: {e}")
+        
+    logger.info(f"Resume AutoSave FINISHED for thread_id: {thread_id}")
 
 
 

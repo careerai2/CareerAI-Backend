@@ -309,14 +309,8 @@ async def send_patches(
         print("Apply patches result:", result)
         
         if result and result.get("status") == "success":
-            return {"messages": [
-                ToolMessage(
-                content="Education Patches applied successfully.",
-                name="system_feedback",
-                tool_call_id=tool_call_id,
-            )       
-            ]}
-        
+            return "Education Patches applied successfully.",
+                
         elif result and result.get("status") == "error":
             raise ValueError(result.get("message", "Unknown error during patch application."))
         else:
@@ -327,20 +321,10 @@ async def send_patches(
     except Exception as e:
         print(f"❌ Error applying certification entry patches: {e}")
 
-        
-        fallback_msg = ToolMessage(
-            content=(
-                f"""The send_patches tool failed due to: {e}. 
-                Please either retry generating valid patches or inform the user 
-                that the update could not be applied."""
-            ),
-            name="system_feedback",
-            tool_call_id=tool_call_id,
-            status="error",
-        )
 
         # ❌ Do not raise ToolException if you want router to handle it
-        return {"messages": [fallback_msg]}
+        return f"""The send_patches tool failed due to:\n {e}.\n Please either retry generating valid patches or inform the user 
+                that the update could not be applied."""
 
 
 

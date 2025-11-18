@@ -44,7 +44,10 @@ async def update_top_level_field(
     Updates a top-level field in the resume.
     If the field is list type (like skills,interests), the given list is appended (no duplicates).
     """
+    print("Field",field)
+    print("\nValue",value)
     try:
+    
         user_id = config["configurable"].get("user_id")
         resume_id = config["configurable"].get("resume_id")
 
