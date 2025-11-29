@@ -6,12 +6,13 @@ from langchain_core.messages import SystemMessage,HumanMessage
 from .llm_model import llm
 from langchain_core.runnables import RunnableConfig
 from textwrap import dedent
-from .utils.common_tools import retrive_entry_from_resume,apply_section_patches,extract_json_from_response,send_bullet_response,get_resume_by_threadId
+from .utils.common_tools import retrive_entry_from_resume,send_bullet_response
 import assistant.resume.chat.token_count as token_count
 
+from config.redis_config import redis_service
 
 # KB to be changed currently internship set should be some global or change according to 
-from assistant.resume.chat.internship_agent.functions import new_query_pdf_knowledge_base
+from assistant.resume.chat.multi_step_agents.internship_agent.functions import new_query_pdf_knowledge_base
 
 class ask_agent_input(BaseModel):
     # sectionId: str
@@ -156,7 +157,7 @@ async def response_generator(state: agent_state, config: RunnableConfig):
     if state.user_input.field == Fields.Summary:
         content = "Focus on concise, impactful language that highlights key skills and experiences relevant to the target role."
         
-        entry = get_resume_by_threadId(state.thread_id)
+        entry = redis_service.get_resume_by_threadId(state.thread_id)
 
 
 # The action verbs can be changed according to the section  of resume will be imported later for now only internship

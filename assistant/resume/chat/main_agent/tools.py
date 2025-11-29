@@ -4,9 +4,9 @@ from typing import Literal, Union
 import json
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
-from ..utils.common_tools import get_resume, save_resume, send_patch_to_frontend
-from redis_config import redis_client as r
-
+from ..utils.common_tools import send_patch_to_frontend
+from config.redis_config import redis_client as r
+from config.redis_config import redis_service
 
 
 # Now skills is also allowed
@@ -55,7 +55,7 @@ async def update_top_level_field(
             raise ValueError("Missing user_id or resume_id in context.")
 
         # Fetch resume
-        resume = get_resume(user_id, resume_id)
+        resume = redis_service.get_resume(user_id, resume_id)
 
         # Ensure field is allowed
         if field not in ALLOWED_FIELDS:
@@ -79,7 +79,7 @@ async def update_top_level_field(
             resume[field] = value
 
         # Save and send patch
-        save_resume(user_id, resume_id, resume)
+        redis_service.save_resume(user_id, resume_id, resume)
         await send_patch_to_frontend(user_id, resume)
 
         print(f"✅ Field '{field}' updated for {user_id}")

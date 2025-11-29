@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, func, Enum
-from postgress_db import Base
+from config.postgress_db import Base
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"

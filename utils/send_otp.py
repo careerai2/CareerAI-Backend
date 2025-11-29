@@ -34,4 +34,4 @@ async def send_otp_email(receiver_email: str, otp: int) -> int:
     except Exception as e:
         print(f"Error sending OTP: {e}")
         raise ValueError("Failed to send OTP email")
-        return -1
+        # return -1

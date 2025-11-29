@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends,Request, WebSocketDisconnect,status,websockets,WebSocket
 from fastapi.responses import JSONResponse
 from websocket_manger import ConnectionManager
-from db import init_db
+from config.db import init_db
 from routes.user_routes import router as user_router
 from routes.public_routes import router as public_router
 from middlewares.verify_user import auth_required as AuthMiddleware,websocket_auth
@@ -9,21 +9,20 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Annotated
 import os
-from db import get_database
-from postgress_db import get_postgress_db
+from config.db import get_database
+from config.postgress_db import get_postgress_db
 from assistant.resume.chat.swarm import stream_graph_to_websocket,update_resume
 from app_instance import app
 from bson import ObjectId
 import logging
-from assistant.resume.chat.utils.common_tools import get_tailoring_keys,undo_last_patch
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
 import assistant.resume.chat.token_count as token_count
-from log_config import get_logger
+from config.log_config import get_logger
 
 
-from assistant.resume.chat.bullet_agent import agent_state, ask_agent_input,call_model
+from assistant.resume.chat.bullet_agent import call_model
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -72,7 +71,6 @@ async def root():
 app.include_router(public_router)
 
 
-
 # User Authentication required for user routes
 app.include_router(user_router,dependencies=[Depends(AuthMiddleware)])
 
@@ -97,8 +95,8 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: As
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    tailoring_keys = get_tailoring_keys(str(user["_id"]), resume_id) or resume.get("tailoring_keys", [])
-    # print(f"User {user['_id']} connected to resume {resume_id} with tailoring keys: {tailoring_keys}")
+    tailoring_keys = resume.get("tailoring_keys", [])
+    print(f"\n\nUser {user['_id']} connected to resume {resume_id} with tailoring keys: {tailoring_keys}\n\n\n")
     try:
         while True:
             user_input = await websocket.receive_json()
@@ -111,16 +109,16 @@ async def resume_chat_ws(websocket: WebSocket, resume_id: str, postgresql_db: As
                 await update_resume(thread_id, user_input["resume"])
                 # await websocket.send_json({"type": "system", "message": "Resume updated in agent state"})
 
-            elif user_input["type"] == "undo":
-                thread_id = f"{user['_id']}:{resume_id}"
-                result = undo_last_patch(thread_id)
-                print("Undo result:", result)
-                if result["status"] == "error":
-                    await websocket.send_json({"type": "error", "message": result["message"]})
-                else:
-                    current_resume = await update_resume(thread_id, result["resume"])
-                    await websocket.send_json({"type": "resume_update", "resume": current_resume})
-                    await websocket.send_json({"type": "system", "message": "Last action undone"})
+            # elif user_input["type"] == "undo":
+            #     thread_id = f"{user['_id']}:{resume_id}"
+            #     result = undo_last_patch(thread_id)
+            #     print("Undo result:", result)
+            #     if result["status"] == "error":
+            #         await websocket.send_json({"type": "error", "message": result["message"]})
+            #     else:
+            #         current_resume = await update_resume(thread_id, result["resume"])
+            #         await websocket.send_json({"type": "resume_update", "resume": current_resume})
+            #         await websocket.send_json({"type": "system", "message": "Last action undone"})
                 
             elif user_input["type"] == "bullet":
                 print("User input for bullet:", user_input)

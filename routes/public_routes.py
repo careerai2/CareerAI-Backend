@@ -1,7 +1,7 @@
 from fastapi import APIRouter,HTTPException,Depends,Request,Query
 from controllers.user_controller import signup_user,login_user,google_auth,verify_otp
 from validation.user_types import UserSignup, UserLogin,GoogleAuth_Input,OtpVerification
-from db import get_database
+from config.db import get_database
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from fastapi.responses import RedirectResponse
 from starlette.config import Config
@@ -12,6 +12,8 @@ from utils.verify_token import verify_token
 from controllers.user_controller import quick_save_resume
 import jwt
 import json
+from controllers.user_controller import get_resume_by_Id_Internal
+
 router = APIRouter(prefix="/api/auth", tags=["users"])
 
 
@@ -122,3 +124,14 @@ async def quick_save_resume_beacon(
 #     )
 #     print("User authenticated:", token)
 #     return google_auth(user_data, db)
+
+
+@router.get("/get-resume-internal/{resume_id}")
+async def get_resume(
+    resume_id: str,
+    request: Request,
+    secret_key: str = Query(None, description="Internal API Secret Key"),
+    user_id: str = Query(None, description="User ID"),
+    session: AsyncSession = Depends(get_database)
+):
+    return await get_resume_by_Id_Internal(resume_id,user_id,secret_key, session)

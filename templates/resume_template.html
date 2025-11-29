@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{ resume.title or "Resume" }}</title>
+
+  <style>
+    @page {
+      size: A4;
+      margin: 15mm 18mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 11pt;
+      color: #222;
+      line-height: 1.4;
+      margin: 0;
+      padding: 0;
+    }
+
+    .page {
+      width: 100%;
+    }
+
+    h1, h2, h3, h4 {
+      margin: 0;
+      padding: 0;
+      font-weight: 600;
+      color: #111;
+    }
+
+    h1 {
+      font-size: 22pt;
+      letter-spacing: 0.5px;
+      margin-bottom: 2pt;
+    }
+
+    h2.section-title {
+      font-size: 11.5pt;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 0.6pt solid #444;
+      padding-bottom: 2pt;
+      margin-top: 12pt;
+      margin-bottom: 6pt;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 10pt;
+    }
+
+    .contact-line {
+      font-size: 9.5pt;
+      color: #555;
+    }
+
+    .contact-item {
+      display: inline;
+    }
+
+    .contact-separator::before {
+      content: "•";
+      margin: 0 4px;
+      color: #999;
+    }
+
+    .section {
+      margin-top: 4pt;
+      margin-bottom: 4pt;
+    }
+
+    .entry {
+      margin-bottom: 4pt;
+    }
+
+    .entry-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 1pt;
+    }
+
+    .entry-title {
+      font-weight: 600;
+    }
+
+    .entry-subtitle {
+      font-size: 9.5pt;
+      color: #555;
+    }
+
+    .entry-meta {
+      font-size: 9.5pt;
+      color: #555;
+      text-align: right;
+      margin-left: 8pt;
+      white-space: nowrap;
+    }
+
+    .entry-location {
+      font-size: 9.5pt;
+      color: #666;
+    }
+
+    .bullets {
+      margin: 0;
+      padding-left: 12pt;
+      margin-top: 1pt;
+    }
+
+    .bullets li {
+      margin-bottom: 1pt;
+    }
+
+    .inline-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .inline-list li {
+      display: inline;
+      font-size: 9.5pt;
+    }
+
+    .inline-list li::after {
+      content: " • ";
+      color: #999;
+    }
+
+    .inline-list li:last-child::after {
+      content: "";
+    }
+
+    .small {
+      font-size: 9.5pt;
+    }
+
+    .section-tight {
+      margin-top: 2pt;
+      margin-bottom: 2pt;
+    }
+
+    .mt-2 { margin-top: 2pt; }
+    .mt-4 { margin-top: 4pt; }
+    .mb-2 { margin-bottom: 2pt; }
+
+    .text-muted { color: #666; }
+
+    .link {
+      text-decoration: none;
+      color: #1e40af;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  {# ================= HEADER ================= #}
+  <header class="header">
+    <h1>{{ resume.name or "" }}</h1>
+
+    {% set contact_items = [] %}
+
+    {% if resume.email %}
+      {% set _ = contact_items.append(resume.email) %}
+    {% endif %}
+
+    {% if resume.phone_number %}
+      {% set _ = contact_items.append(resume.phone_number) %}
+    {% endif %}
+
+    {# external_links is List[str] #}
+    {% if resume.external_links %}
+      {% for raw_link in resume.external_links %}
+        {% set url = raw_link %}
+        {% set label = "Portfolio" %}
+        {% if "linkedin" in url|lower %}
+          {% set label = "LinkedIn" %}
+        {% elif "github" in url|lower %}
+          {% set label = "GitHub" %}
+        {% endif %}
+        {% set _ = contact_items.append(label ~ ": " ~ url) %}
+      {% endfor %}
+    {% endif %}
+
+    {% if contact_items %}
+      <div class="contact-line">
+        {% for item in contact_items %}
+          <span class="contact-item">
+            {{ item }}
+          </span>
+          {% if not loop.last %}
+            <span class="contact-item contact-separator"></span>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
+  </header>
+
+  {% set hidden_sections = resume.hidden_sections or [] %}
+  {% set hs = resume.hidden_state %}
+
+  {# ================= SUMMARY ================= #}
+  {% if "summary" not in hidden_sections
+        and resume.summary
+        and resume.summary|trim != "" %}
+    <section class="section">
+      <h2 class="section-title">Summary</h2>
+      <p class="small">
+        {{ resume.summary }}
+      </p>
+    </section>
+  {% endif %}
+
+  {# ================= EDUCATION ================= #}
+  {% set any_edu_visible = false %}
+  {% if resume.education_entries %}
+    {% for edu in resume.education_entries %}
+      {% set idx = loop.index0 %}
+      {% set edu_hidden_flags = hs.education_entries if hs and hs.education_entries is defined else [] %}
+      {% set is_hidden = (edu_hidden_flags|length > idx and edu_hidden_flags[idx]) %}
+      {% if not is_hidden and (edu.college or edu.degree or edu.cgpa or edu.start_year or edu.end_year) %}
+        {% set any_edu_visible = true %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if "education_entries" not in hidden_sections and any_edu_visible %}
+    <section class="section">
+      <h2 class="section-title">Education</h2>
+
+      {% set edu_hidden_flags = hs.education_entries if hs and hs.education_entries is defined else [] %}
+
+      {% for edu in resume.education_entries %}
+        {% set idx = loop.index0 %}
+        {% set is_hidden = (edu_hidden_flags|length > idx and edu_hidden_flags[idx]) %}
+        {% if not is_hidden %}
+          {% if edu.college or edu.degree or edu.cgpa or edu.start_year or edu.end_year %}
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  {% if edu.degree %}
+                    <div class="entry-title">{{ edu.degree }}</div>
+                  {% endif %}
+                  {% if edu.college %}
+                    <div class="entry-subtitle">{{ edu.college }}</div>
+                  {% endif %}
+                  {% if edu.cgpa is not none %}
+                    <div class="small text-muted">CGPA: {{ "%.2f"|format(edu.cgpa) }}</div>
+                  {% endif %}
+                </div>
+                <div class="entry-meta">
+                  {% if edu.start_year or edu.end_year %}
+                    {% if edu.start_year and edu.end_year %}
+                      {{ edu.start_year }} – {{ edu.end_year }}
+                    {% elif edu.start_year %}
+                      {{ edu.start_year }} – Present
+                    {% else %}
+                      {{ edu.end_year }}
+                    {% endif %}
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {# ================= WORK EXPERIENCE ================= #}
+  {% set any_work_visible = false %}
+  {% if resume.work_experiences %}
+    {% for we in resume.work_experiences %}
+      {% set idx = loop.index0 %}
+      {% set we_state = (hs.work_experiences[idx] if hs and hs.work_experiences|length > idx else None) %}
+      {% if not we_state or not we_state.hidden %}
+        {% if we.company_name or we.designation or we.location or we.duration
+              or (we.projects and we.projects|length > 0) %}
+          {% set any_work_visible = true %}
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if "work_experiences" not in hidden_sections and any_work_visible %}
+    <section class="section">
+      <h2 class="section-title">Work Experience</h2>
+
+      {% for we in resume.work_experiences %}
+        {% set idx = loop.index0 %}
+        {% set we_state = (hs.work_experiences[idx] if hs and hs.work_experiences|length > idx else None) %}
+        {% if not (we_state and we_state.hidden) %}
+
+          {% if we.company_name or we.designation or we.location or we.duration
+                or (we.projects and we.projects|length > 0) %}
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  {% if we.designation %}
+                    <div class="entry-title">{{ we.designation }}</div>
+                  {% endif %}
+                  {% if we.company_name %}
+                    <div class="entry-subtitle">{{ we.company_name }}</div>
+                  {% endif %}
+                  {% if we.location %}
+                    <div class="entry-location small">{{ we.location }}</div>
+                  {% endif %}
+                </div>
+                <div class="entry-meta">
+                  {% if we.duration %}
+                    {{ we.duration }}
+                  {% endif %}
+                </div>
+              </div>
+
+              {# Projects under this work experience #}
+              {% if we.projects %}
+                {% for proj in we.projects %}
+                  {% set p_idx = loop.index0 %}
+                  {% set proj_state = (we_state.projects[p_idx] if we_state and we_state.projects|length > p_idx else None) %}
+                  {% if not (proj_state and proj_state.hidden) %}
+
+                    {% if proj.project_name or (proj.description_bullets and proj.description_bullets|length > 0) %}
+                      <div class="small mt-2">
+                        {% if proj.project_name %}
+                          <strong>{{ proj.project_name }}</strong>
+                        {% endif %}
+
+                        {% if proj.description_bullets %}
+                          <ul class="bullets">
+                            {% for b in proj.description_bullets %}
+                              {% set b_idx = loop.index0 %}
+                              {% set hide_bullet = (
+                                  proj_state
+                                  and proj_state.bullets is defined
+                                  and proj_state.bullets|length > b_idx
+                                  and proj_state.bullets[b_idx]
+                              ) %}
+                              {% if b and not hide_bullet %}
+                                <li>{{ b }}</li>
+                              {% endif %}
+                            {% endfor %}
+                          </ul>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+            </div>
+          {% endif %}
+
+        {% endif %}
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {# ================= INTERNSHIPS ================= #}
+  {% set any_intern_visible = false %}
+  {% if resume.internships %}
+    {% for it in resume.internships %}
+      {% set idx = loop.index0 %}
+      {% set it_state = (hs.internships[idx] if hs and hs.internships|length > idx else None) %}
+      {% if not it_state or not it_state.hidden %}
+        {% if it.company_name or it.designation or it.location or it.duration
+              or (it.internship_work_description_bullets and it.internship_work_description_bullets|length > 0) %}
+          {% set any_intern_visible = true %}
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if "internships" not in hidden_sections and any_intern_visible %}
+    <section class="section">
+      <h2 class="section-title">Internships</h2>
+
+      {% for it in resume.internships %}
+        {% set idx = loop.index0 %}
+        {% set it_state = (hs.internships[idx] if hs and hs.internships|length > idx else None) %}
+        {% if not (it_state and it_state.hidden) %}
+
+          {% if it.company_name or it.designation or it.location or it.duration
+                or (it.internship_work_description_bullets and it.internship_work_description_bullets|length > 0) %}
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  {% if it.designation %}
+                    <div class="entry-title">{{ it.designation }}</div>
+                  {% endif %}
+                  {% if it.company_name %}
+                    <div class="entry-subtitle">{{ it.company_name }}</div>
+                  {% endif %}
+                  {% if it.location %}
+                    <div class="entry-location small">{{ it.location }}</div>
+                  {% endif %}
+                </div>
+                <div class="entry-meta">
+                  {% if it.duration %}
+                    {{ it.duration }}
+                  {% endif %}
+                </div>
+              </div>
+
+              {% if it.internship_work_description_bullets %}
+                <ul class="bullets">
+                  {% for b in it.internship_work_description_bullets %}
+                    {% set b_idx = loop.index0 %}
+                    {% set hide_bullet = (
+                      it_state
+                      and it_state.bullets is defined
+                      and it_state.bullets|length > b_idx
+                      and it_state.bullets[b_idx]
+                    ) %}
+                    {% if b and not hide_bullet %}
+                      <li>{{ b }}</li>
+                    {% endif %}
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </div>
+          {% endif %}
+
+        {% endif %}
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {# ================= ACADEMIC PROJECTS ================= #}
+  {% set any_acad_visible = false %}
+  {% if resume.academic_projects %}
+    {% for ap in resume.academic_projects %}
+      {% set idx = loop.index0 %}
+      {% set ap_state = (hs.academic_projects[idx] if hs and hs.academic_projects|length > idx else None) %}
+      {% if not ap_state or not ap_state.hidden %}
+        {% if ap.project_name or ap.duration or (ap.description_bullets and ap.description_bullets|length > 0) %}
+          {% set any_acad_visible = true %}
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if "academic_projects" not in hidden_sections and any_acad_visible %}
+    <section class="section">
+      <h2 class="section-title">Academic Projects</h2>
+
+      {% for ap in resume.academic_projects %}
+        {% set idx = loop.index0 %}
+        {% set ap_state = (hs.academic_projects[idx] if hs and hs.academic_projects|length > idx else None) %}
+        {% if not (ap_state and ap_state.hidden) %}
+
+          {% if ap.project_name or ap.duration or (ap.description_bullets and ap.description_bullets|length > 0) %}
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  {% if ap.project_name %}
+                    <div class="entry-title">{{ ap.project_name }}</div>
+                  {% endif %}
+                  {% if ap.duration %}
+                    <div class="entry-subtitle small text-muted">{{ ap.duration }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              {% if ap.description_bullets %}
+                <ul class="bullets">
+                  {% for b in ap.description_bullets %}
+                    {% set b_idx = loop.index0 %}
+                    {% set hide_bullet = (
+                      ap_state
+                      and ap_state.bullets is defined
+                      and ap_state.bullets|length > b_idx
+                      and ap_state.bullets[b_idx]
+                    ) %}
+                    {% if b and not hide_bullet %}
+                      <li>{{ b }}</li>
+                    {% endif %}
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </div>
+          {% endif %}
+
+        {% endif %}
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {# ================= POSITIONS OF RESPONSIBILITY ================= #}
+  {% set any_por_visible = false %}
+  {% if resume.positions_of_responsibility %}
+    {% for por in resume.positions_of_responsibility %}
+      {% set idx = loop.index0 %}
+      {% set por_state = (hs.positions_of_responsibility[idx] if hs and hs.positions_of_responsibility|length > idx else None) %}
+      {% if not por_state or not por_state.hidden %}
+        {% if por.role or por.organization or por.location or por.duration
+              or (por.responsibilities and por.responsibilities|length > 0) %}
+          {% set any_por_visible = true %}
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if "positions_of_responsibility" not in hidden_sections and any_por_visible %}
+    <section class="section">
+      <h2 class="section-title">Positions of Responsibility</h2>
+
+      {% for por in resume.positions_of_responsibility %}
+        {% set idx = loop.index0 %}
+        {% set por_state = (hs.positions_of_responsibility[idx] if hs and hs.positions_of_responsibility|length > idx else None) %}
+        {% if not (por_state and por_state.hidden) %}
+
+          {% if por.role or por.organization or por.location or por.duration
+                or (por.responsibilities and por.responsibilities|length > 0) %}
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  {% if por.role %}
+                    <div class="entry-title">{{ por.role }}</div>
+                  {% endif %}
+                  {% if por.organization %}
+                    <div class="entry-subtitle">{{ por.organization }}</div>
+                  {% endif %}
+                  {% if por.location %}
+                    <div class="entry-location small">{{ por.location }}</div>
+                  {% endif %}
+                </div>
+                <div class="entry-meta">
+                  {% if por.duration %}
+                    {{ por.duration }}
+                  {% endif %}
+                </div>
+              </div>
+
+              {% if por.responsibilities %}
+                <ul class="bullets">
+                  {% for r in por.responsibilities %}
+                    {% set b_idx = loop.index0 %}
+                    {% set hide_bullet = (
+                      por_state
+                      and por_state.bullets is defined
+                      and por_state.bullets|length > b_idx
+                      and por_state.bullets[b_idx]
+                    ) %}
+                    {% if r and not hide_bullet %}
+                      <li>{{ r }}</li>
+                    {% endif %}
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </div>
+          {% endif %}
+
+        {% endif %}
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {# ================= ACHIEVEMENTS ================= #}
+  {% set ach_hidden_flags = hs.achievements if hs and hs.achievements is defined else [] %}
+  {% set any_ach_visible = false %}
+  {% if resume.achievements %}
+    {% for a in resume.achievements %}
+      {% set idx = loop.index0 %}
+      {% set is_hidden = (ach_hidden_flags|length > idx and ach_hidden_flags[idx]) %}
+      {% if not is_hidden and (a.title or a.awarding_body or a.year or a.description) %}
+        {% set any_ach_visible = true %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if "achievements" not in hidden_sections and any_ach_visible %}
+    <section class="section">
+      <h2 class="section-title">Scholastic Achievements</h2>
+
+      {% for a in resume.achievements %}
+        {% set idx = loop.index0 %}
+        {% set is_hidden = (ach_hidden_flags|length > idx and ach_hidden_flags[idx]) %}
+        {% if not is_hidden %}
+
+          {% if a.title or a.awarding_body or a.year or a.description %}
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  {% if a.title %}
+                    <div class="entry-title">{{ a.title }}</div>
+                  {% endif %}
+                  {% if a.awarding_body %}
+                    <div class="entry-subtitle small">{{ a.awarding_body }}</div>
+                  {% endif %}
+                </div>
+                <div class="entry-meta">
+                  {% if a.year %}
+                    {{ a.year }}
+                  {% endif %}
+                </div>
+              </div>
+              {% if a.description %}
+                <div class="small">{{ a.description }}</div>
+              {% endif %}
+            </div>
+          {% endif %}
+
+        {% endif %}
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {# ================= EXTRA CURRICULAR ================= #}
+  {% set ec_hidden_flags = hs.extra_curriculars if hs and hs.extra_curriculars is defined else [] %}
+  {% set any_ec_visible = false %}
+  {% if resume.extra_curriculars %}
+    {% for ec in resume.extra_curriculars %}
+      {% set idx = loop.index0 %}
+      {% set is_hidden = (ec_hidden_flags|length > idx and ec_hidden_flags[idx]) %}
+      {% if not is_hidden and (ec.activity or ec.position or ec.description or ec.year) %}
+        {% set any_ec_visible = true %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if "extra_curriculars" not in hidden_sections and any_ec_visible %}
+    <section class="section">
+      <h2 class="section-title">Extra Curricular Activities</h2>
+
+      {% for ec in resume.extra_curriculars %}
+        {% set idx = loop.index0 %}
+        {% set is_hidden = (ec_hidden_flags|length > idx and ec_hidden_flags[idx]) %}
+        {% if not is_hidden %}
+
+          {% if ec.activity or ec.position or ec.description or ec.year %}
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  {% if ec.activity %}
+                    <div class="entry-title">{{ ec.activity }}</div>
+                  {% endif %}
+                  {% if ec.position %}
+                    <div class="entry-subtitle small">{{ ec.position }}</div>
+                  {% endif %}
+                </div>
+                <div class="entry-meta">
+                  {% if ec.year %}
+                    {{ ec.year }}
+                  {% endif %}
+                </div>
+              </div>
+              {% if ec.description %}
+                <div class="small">{{ ec.description }}</div>
+              {% endif %}
+            </div>
+          {% endif %}
+
+        {% endif %}
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {# ================= CERTIFICATIONS ================= #}
+  {% set cert_hidden_flags = hs.certifications if hs and hs.certifications is defined else [] %}
+  {% set any_cert_visible = false %}
+  {% if resume.certifications %}
+    {% for c in resume.certifications %}
+      {% set idx = loop.index0 %}
+      {% set is_hidden = (cert_hidden_flags|length > idx and cert_hidden_flags[idx]) %}
+      {% if not is_hidden and (c.certification or c.issuing_organization or c.time_of_certification) %}
+        {% set any_cert_visible = true %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if "certifications" not in hidden_sections and any_cert_visible %}
+    <section class="section">
+      <h2 class="section-title">Certifications</h2>
+
+      {% for c in resume.certifications %}
+        {% set idx = loop.index0 %}
+        {% set is_hidden = (cert_hidden_flags|length > idx and cert_hidden_flags[idx]) %}
+        {% if not is_hidden %}
+
+          {% if c.certification or c.issuing_organization or c.time_of_certification %}
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  {% if c.certification %}
+                    <div class="entry-title">{{ c.certification }}</div>
+                  {% endif %}
+                  {% if c.issuing_organization %}
+                    <div class="entry-subtitle small">{{ c.issuing_organization }}</div>
+                  {% endif %}
+                </div>
+                <div class="entry-meta">
+                  {% if c.time_of_certification %}
+                    {{ c.time_of_certification }}
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          {% endif %}
+
+        {% endif %}
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {# ================= SKILLS / INTERESTS / LANGUAGES ================= #}
+
+  {% if "skills" not in hidden_sections
+        and resume.skills
+        and resume.skills|length > 0 %}
+    <section class="section section-tight">
+      <h2 class="section-title">Skills</h2>
+      <ul class="inline-list">
+        {% for s in resume.skills if s %}
+          <li>{{ s }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if "interests" not in hidden_sections
+        and resume.interests
+        and resume.interests|length > 0 %}
+    <section class="section section-tight">
+      <h2 class="section-title">Interests</h2>
+      <ul class="inline-list">
+        {% for i in resume.interests if i %}
+          <li>{{ i }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if "languages" not in hidden_sections
+        and resume.languages
+        and resume.languages|length > 0 %}
+    <section class="section section-tight">
+      <h2 class="section-title">Languages</h2>
+      <ul class="inline-list">
+        {% for l in resume.languages if l %}
+          <li>{{ l }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+</div>
+</body>
+</html>

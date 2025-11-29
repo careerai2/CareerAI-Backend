@@ -11,7 +11,6 @@ from langchain_core.messages.utils import (
     trim_messages,
     count_tokens_approximately
 )
-from ..utils.common_tools import calculate_tokens
 from langchain_core.messages import HumanMessage
 
 from utils.safe_trim_msg import safe_trim_messages

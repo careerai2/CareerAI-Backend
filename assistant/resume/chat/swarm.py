@@ -1,40 +1,37 @@
 from fastapi import WebSocket, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from langchain_core.messages import AIMessage,HumanMessage
+from langchain_core.messages import AIMessage
 from fastapi import WebSocket
 from models.resume_model import ResumeLLMSchema
-from .utils.common_tools import get_resume,get_graph_state
-from .utils.save_chat_msg import save_chat_message
+# from .utils.save_chat_msg import save_chat_message
 from langgraph_swarm import create_swarm
 import json
 
 
 
-# from .internship_agent.agent_copy_2_copy import internship_assistant
-from .internship_agent.agent_copy_2 import internship_assistant
-from .acads_agent.agent_2 import acads_assistant
-from .workex_agent.agent_copy_2 import workex_assistant
-from .position_of_responsibility_agent.agent_2 import position_of_responsibility_assistant
+# Multi step agents
+from assistant.resume.chat.multi_step_agents.internship_agent.agent import internship_assistant
+from assistant.resume.chat.multi_step_agents.acads_agent.agent import acads_assistant
+from assistant.resume.chat.multi_step_agents.workex_agent.agent import workex_assistant
+from assistant.resume.chat.multi_step_agents.position_of_responsibility_agent.agent import position_of_responsibility_assistant
 
 from .main_agent.agent import main_assistant
 
-# from .position_of_responsibility_agent.agent import position_of_responsibility_assistant
-# from .workex_agent.agent import workex_assistant
+# Single step agents
+from assistant.resume.chat.single_step_agents.education_agent.agent import education_assistant 
+from assistant.resume.chat.single_step_agents.certifications_agent.agent import certification_assistant 
+from assistant.resume.chat.single_step_agents.extra_curricular_agent.agent import extra_curricular_assistant
+from assistant.resume.chat.single_step_agents.scholastic_achievement_agent.agent import scholastic_achievement_assistant
 
-from .education_agent.agent import education_assistant 
-from .certifications_agent.agent import certification_assistant 
-from .extra_curricular_agent.agent import extra_curricular_assistant
-from .scholastic_achievement_agent.agent import scholastic_achievement_assistant
-
-from .utils.common_tools import get_resume
-from utils.mapper import agent_map ,Fields,resume_section_map
+from config.redis_config import redis_service
+from utils.mapper import Fields
 
 
 from langgraph.checkpoint.memory import InMemorySaver
 from .llm_model import SwarmResumeState
-from redis_config import redis_client as r
-from postgress_db import get_postgress_db
-from  log_config import get_logger
+from config.redis_config import redis_client as r
+from config.postgress_db import get_postgress_db
+from  config.log_config import get_logger
 
 
 logger = get_logger("Auto Save")
@@ -75,12 +72,11 @@ async def update_resume(thread_id: str, new_resume: dict):
 
         # ✅ Step 2: Try updating LangGraph state
         # print(validated_resume.model_dump_json())
-        
      
         # logger.info(f" Resume in AutoSave:\n\n{validated_resume}\n\n")
        
         key = f"resume:{thread_id}"
-        r.set(key,  json.dumps(validated_resume.model_dump()))
+        r.set(key,  json.dumps(validated_resume.model_dump(),default=str))
         # r.set(key,  json.dumps(new_resume))
 
         # logger.info(f"✅ Resume updated and saved to Redis with key")
@@ -90,7 +86,7 @@ async def update_resume(thread_id: str, new_resume: dict):
     except Exception as e:
         logger.error(f"❌ Error updating resume state: {e}")
         
-    logger.info(f"Resume AutoSave FINISHED for thread_id: {thread_id}")
+    # logger.info(f"Resume AutoSave FINISHED for thread_id: {thread_id}")
 
 
 
@@ -147,7 +143,7 @@ async def stream_graph_to_websocket(user_input: str | ask_agent_input, websocket
     # print(f"Tailoring keys for user {user_id}: {tailoring_keys}")
     
 
-    resume = get_resume(user_id, resume_id)
+    resume = redis_service.get_resume(user_id, resume_id)
 
 
     print(user_input)

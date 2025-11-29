@@ -2,8 +2,9 @@ from fastapi import APIRouter, Request,Depends,Form,Query
 from controllers.user_controller import *
 from sqlalchemy.ext.asyncio import AsyncSession
 from validation.user_types import * 
-from db import get_database
-from postgress_db import get_postgress_db
+from config.db import get_database
+from config.postgress_db import get_postgress_db
+
 
 
 
@@ -42,7 +43,7 @@ async def createResume(
 ):
     user_id = request.state.user["_id"]
     tailoring_keys = [industry]
-    return await create_resume(template, tailoring_keys, user_id, db, file)
+    return await create_resume(template,tailoring_keys, user_id, db, file)
 
 @router.get("/get-resume/{resume_id}")
 async def get_resume(
@@ -52,6 +53,15 @@ async def get_resume(
 ):
     user_id = request.state.user["_id"]
     return await get_resume_by_Id(resume_id, user_id, session)
+
+@router.post("/export-resume/{resume_id}")
+async def get_resume(
+    resume_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_database)
+):
+    user_id = request.state.user["_id"]
+    return await export_resume(resume_id, user_id, session)
 
 
 @router.delete("/delete-resume/{resume_id}")
@@ -133,13 +143,12 @@ async def save_resume( resume_id: str,
     
 
     
-@router.put("/export-resume/{resume_id}")
-async def export_resume( resume_id: str,
-    request: Request,
-    session: AsyncSession = Depends(get_database)):
-    user_id = request.state.user["_id"]
-    return await export_resume_data(resume_id, user_id, session)
+# @router.put("/export-resume/{resume_id}")
+# async def export_resume( resume_id: str,
+#     request: Request,
+#     session: AsyncSession = Depends(get_database)):
+#     user_id = request.state.user["_id"]
+#     return await export_resume_data(resume_id, user_id, session)
     
-
 
 

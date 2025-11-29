@@ -2,7 +2,7 @@ from fastapi import Request, Depends, HTTPException, WebSocket, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 from utils.jwt import decode_jwt
-from db import get_database  # Dependency that returns `AsyncIOMotorDatabase`
+from config.db import get_database  # Dependency that returns `AsyncIOMotorDatabase`
 
 
 async def auth_required(

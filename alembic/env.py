@@ -30,7 +30,7 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 
-from postgress_db import Base  # Import your SQLAlchemy Base
+from config.postgress_db import Base  # Import your SQLAlchemy Base
 from models.chat_msg_model import ChatMessage
 
 target_metadata = ChatMessage.metadata

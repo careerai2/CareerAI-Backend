@@ -1,0 +1,439 @@
+from httpx import patch
+from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import ToolNode
+from langchain_core.messages import SystemMessage, AIMessage,HumanMessage,FunctionMessage
+from langchain_core.runnables import RunnableConfig
+from ...llm_model import llm,SwarmResumeState
+# from .state import SwarmResumeState
+from .tools import tools
+from textwrap import dedent
+from utils.safe_trim_msg import safe_trim_messages
+from assistant.resume.chat.utils.common_tools import extract_json_from_response,get_patch_field_and_index
+from assistant.resume.chat.utils.apply_patches import apply_patches_global
+import assistant.resume.chat.token_count as token_count
+import json 
+from .functions import new_query_pdf_knowledge_base
+from ...utils.field_mapping import FieldMapping
+from .propmts import WorkEx_Prompts
+from config.log_config import get_logger
+from config.env_config import show_workex_logs
+from .routers import workex_model_router
+
+logger = get_logger("workex_agent")
+
+
+# ---------------------------
+# 2. LLM with Tools
+# ---------------------------
+
+
+llm_workEx = llm.bind_tools(tools)
+# llm_workex = llm  # tool can be added if needed
+llm_builder = llm  # tool can be added if needed
+llm_retriever = llm # tool can be added if needed
+llm_replier = llm # tool can be added if needed
+
+
+
+
+# ---------------------
+# INSTRUCTIONS
+
+instruction = {
+    "company_name":"Use official registered name only. | Avoid abbreviations unless globally recognized (e.g., IBM). | Apply Title Case. | Example: **Google LLC.**",
+    "location":"- Format: **City, Country.** | Example: *Bengaluru, India.*",
+    "duration":"- Format: **Month Year – Month Year** or **Month Year – Present.** | Example: *June 2020 – August 2022.*",
+    "designation":" Write the exact work title. | Capitalize each word. | Example: **Software Engineering Intern.**",
+    "project_name":"Use a concise, descriptive title. | Apply Title Case.  | Example: **Backend API Development.**",
+
+}
+
+
+
+
+
+# ---------------------------
+# 3. State
+# ---------------------------
+
+# in file llm_model.py
+
+
+# ---------------------------
+# 4. Node Functions
+# ---------------------------
+
+MAX_TOKENS = 350
+
+# ------------------------ Main WorkEx Model ------------------------
+async def workex_model(state: SwarmResumeState, config: RunnableConfig):
+    """Main chat loop for workex assistant with immediate state updates."""
+    
+    tailoring_keys = config["configurable"].get("tailoring_keys", [])
+    current_entries = state.get("resume_schema", {}).get("work_experiences", [])
+    
+    error_msg = state.get("workex", {}).get("error_msg", None)
+    
+    if error_msg:
+        
+        if show_workex_logs:
+            print(f"⚠️ WORKEX patch failed with error: {error_msg}")
+
+        # Give LLM a short controlled prompt to reply politely
+        recovery_prompt = WorkEx_Prompts.get_recovery_prompt(error_msg, state["workex"].get("patches", []))
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
+        response = await llm_workEx.ainvoke([recovery_prompt], config)
+        
+        token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+        
+        if show_workex_logs:
+            logger.info("workex_model (error recovery) response:", response.content)
+        
+        # Reset error so it doesn’t loop forever
+        state["workex"]["error_msg"] = None
+
+        return {
+            "messages": [response],
+            "workex": {
+                    "error_msg": None,
+                }
+            }
+
+  
+    system_prompt = SystemMessage(
+    content=dedent(f"""
+    You are a **Very-Fast, Accurate, and Obedient Work Experience Assistant** for a Resume Builder.
+    Manage the Work Experience section. Each entry includes: company_name, location, duration, designation, and projects (array of Project objects).
+    Each Project may include: project_name and description_bullets (array of strings).
+
+    **Ask one field at a time**.
+    
+    --- CORE DIRECTIVE ---
+    • Every change must trigger an **immediate patch** before confirmation.Immediate means immediate.  
+    • **Verify the correct target** before patching — accuracy over speed.  
+    • Never reveal tools or internal processes. Stay in role. 
+    • Never overwrite or remove existing items unless clearly instructed.Check Current Entries first.  
+    • Before patching, always confirm the exact target workex entry(don't refer by index to user) if multiple entries exist or ambiguity is detected.
+    • Keep working on the current entry until the user explicitly switches to another one. Never edit or create changes in other entries on your own.
+
+     USER TARGETING ROLE: {', '.join(tailoring_keys) if tailoring_keys else 'None'}
+     
+    --- CURRENT ENTRIES ---
+    {json.dumps(current_entries, separators=(',', ':'))}
+
+    --- RULES ---
+    R1. Patch the work experience list directly.  
+    R2. Focus on one work experience entry at a time.  
+    R3. Use concise bullet points: ["Action, approach, outcome.", ...].  
+    R4. Confirm updates only after successful tool response.  
+
+    --- DATA COLLECTION RULES ---
+    • Ask again if any field is unclear or missing.  
+    • Never assume any field; each field is optional, so don't force user input.  
+
+    --- LIST FIELD HANDLING ---
+    • For array fields (e.g., projects, description_bullets):
+        - Replace existing lists if present.  
+        - Add to the end if missing or empty.  
+        - Always verify that the target work experience and project exist before patching.  
+    • For array fields **always append new items** to the existing list.  
+    • Never assume a nested list exists — check against CURRENT ENTRIES first.  
+    • Never overwrite or remove existing items unless clearly instructed.
+
+    --- USER INTERACTION ---
+    • Respond in a friendly, confident, and concise tone.  
+    • Ask sharp clarifying questions if data or bullets are weak.  
+    • Never explain internal logic.  
+    • You are part of a single unified system that works seamlessly for the user.   
+
+    --- OPTIMIZATION GOAL ---
+    Write impactful project bullets emphasizing:
+      - **Action** (what you did)  
+      - **Approach** (tools, methods, or techniques used)  
+      - **Outcome** (result or measurable impact)  
+    Skip challenges or learnings.
+    """)
+)
+
+
+    try:
+            
+        messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS )
+        response = await llm_workEx.ainvoke([system_prompt] + messages, config)
+        
+
+        # Update token counters
+        token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+        if show_workex_logs:
+            logger.info(f"\nworkex_model response :\n{response.content}")
+            logger.info("workex_model Token Usage:", response.usage_metadata)
+    
+        return {"messages": [response]}
+    
+    except Exception as e:
+        logger.error(f"Error in workex_model: {e}")
+        return {END: END}   
+
+
+
+
+
+# ------------------------- Query Generator Model -------------------------
+async def query_generator_model(state: SwarmResumeState, config: RunnableConfig):
+    """Fetch relevant info from knowledge base."""
+    # current_entries = state.get("resume_schema", {}).get("workexs", [])
+    tailoring_keys = config["configurable"].get("tailoring_keys", [])
+    patches = state.get("workex", {}).get("patches", [])
+   
+
+    prompt = WorkEx_Prompts.get_query_prompt(patches, tailoring_keys)
+
+    try:
+        # Call the retriever LLM
+        response = await llm_retriever.ainvoke(prompt, config)
+
+        if response.content.strip():
+            state["workex"]["generated_query"] = str(response.content)
+        else:
+            state["workex"]["generated_query"] = ""
+    
+        
+        token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+
+
+        if show_workex_logs:
+            logger.info(f"Query generated: \n{response.content}")
+            logger.info(f"Query generator Token Usage: \n {response.usage_metadata}")
+
+
+        return {"workex": state.get("workex", {})}
+    
+    except Exception as e:
+        logger.error(f"Error in query_generator_model: {e}")
+        return {END: END}
+
+
+
+# ------------------------- Retriever Node -------------------------
+def retriever_node(state: SwarmResumeState, config: RunnableConfig):
+    try:
+        query = state.get("workex", {}).get("generated_query", [])
+        patches = state.get("workex", {}).get("patches", [])
+
+        if not query or (isinstance(query, str) and query.strip() in ("None", "")):
+            return {"next_node": "builder_model",
+                    "workex":{
+                        "retrieved_info": [],
+                        "generated_query": "",
+                    }}
+
+   
+        # 🔄 Loop over each query + patch
+        unique_fields = set()
+        for patch in patches:
+            
+            if patch.get("op") in ("remove", "delete"):
+                continue
+            _, patch_field, _ = get_patch_field_and_index(patch.get("path", ""))
+            unique_fields.add(patch_field)
+
+        if show_workex_logs:
+            logger.info(f"\n🧠 Unique fields to fetch: {unique_fields}\n")
+
+        all_results = []
+        section = "Work Experience Document Formatting Guidelines"
+
+        for field in unique_fields:
+            kb_field = FieldMapping.WORKEX.get(field,None)
+            
+            if show_workex_logs:
+                logger.log(f"Fetching KB info for field: {field} -> KB field: {kb_field}")
+
+            if field == "responsibilities" and kb_field:
+                # Fetch action verbs
+                action_verbs_info = new_query_pdf_knowledge_base(
+                    query_text=str(query),
+                    role=["por"],
+                    section=section,
+                    subsection="Action Verbs (to use in description bullets)",
+                    field=kb_field,
+                    n_results=5,
+                    debug=False
+                )
+                all_results.append(f"[Action Verbs] => {action_verbs_info}")
+
+                # Fetch schema rules
+                schema_info = new_query_pdf_knowledge_base(
+                    query_text=str(query),
+                    role=["por"],
+                    section=section,
+                    subsection="Schema Requirements & Formatting Rules",
+                    field=kb_field,
+                    n_results=5,
+                    debug=False
+                )
+                all_results.append(f"[{field}] {schema_info}")
+
+            else:
+                retrieved_info = instruction.get(field, '')
+                all_results.append(f"[{field}] {retrieved_info}")
+                
+
+            all_results.append(f"[{patch_field}] {retrieved_info}")
+
+        all_results = "\n".join(all_results)
+        
+        if show_workex_logs:
+            logger.info(f"✅ Retrieved info saved: {all_results}")
+
+        return {"next_node": "builder_model",
+                "workex":{
+                    "retrieved_info": all_results,
+                    "generated_query": "",}
+                }
+
+    except Exception as e:
+        logger.error(f"Error in retriever: {e}")
+        return {END: END}
+
+
+
+
+
+# -------------------------- Builder Model --------------------------
+async def builder_model(state: SwarmResumeState, config: RunnableConfig):
+    """Refine workex patches using retrieved info."""
+    try:
+        
+        retrieved_info = state.get("workex", {}).get("retrieved_info", "")
+        patches = state.get("workex", {}).get("patches", [])
+       
+
+        if not retrieved_info or retrieved_info.strip() in ("None", ""):
+            return {
+                "messages": [AIMessage(content="No retrieved info available, skipping building.")],
+            }
+
+        prompt = WorkEx_Prompts.get_builder_prompt(retrieved_info, patches)
+        response = await llm_builder.ainvoke(prompt, config)
+        
+        
+        token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
+        token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
+
+        refined_patches = extract_json_from_response(response.content)
+
+        if show_workex_logs:
+            logger.info(f"Builder produced refined patches:\n{refined_patches}")
+            logger.info(f"\nBuilder_model token usage: {response.usage_metadata}")
+
+
+        return {"next_node": "save_entry_state",
+                "workex":{
+                    "patches": refined_patches,
+                    "retrieved_info": "",
+                }
+                }
+
+    except Exception as e:
+        logger.error(f"Error in builder_model: {e}")
+        return {END: END}
+
+
+
+# -------------------------- Save Entry Node --------------------------
+async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
+    """Parse LLM response and update workex entry state."""
+    try:
+
+        thread_id = config["configurable"]["thread_id"]
+        patches = state.get("workex", {}).get("patches", [])
+
+
+        result = await apply_patches_global(thread_id, patches,"work_experiences")
+        
+        if show_workex_logs:
+            logger.info(f"Apply patches result: {result}")
+        
+        if result and result.get("status") == "success":
+            return {"next_node": "end_node",
+                    "workex":{
+                        "save_node_response": "Patches applied successfully.",
+                        "error_msg": None,
+                    }
+                    }
+        
+        elif result and result.get("status") == "error":
+            error_msg = result.get("message", "Unknown error during patch application.")
+            
+            return {
+                "messages": [AIMessage(content=f"Failed to apply patches: {error_msg},Pathces: {patches}")],
+                "next_node": "workex_model",
+                "workex": {
+                    "error_msg": error_msg,
+                }
+            }  
+    except Exception as e:
+        logger.error(f"Error in save_entry_state: {e}")
+        return {END: END}
+    
+
+# ---------------------------
+# 5. Create Graph
+# ---------------------------
+
+workflow = StateGraph(SwarmResumeState)
+
+
+# Tool nodes for each model
+workex_tools_node = ToolNode(tools)         # For workex_model
+
+
+# Nodes
+workflow.add_node("workex_model", workex_model)
+workflow.add_node("query_generator_model", query_generator_model)
+workflow.add_node("retriever_node", retriever_node)
+workflow.add_node("builder_model", builder_model)
+workflow.add_node("save_entry_state", save_entry_state)
+
+
+
+
+# Tool Nodes
+workflow.add_node("tools_workex", workex_tools_node)
+
+
+
+# Entry Point
+# workflow.set_entry_point("end_node")
+workflow.set_entry_point("workex_model")
+
+
+
+# Conditional routing
+workflow.add_conditional_edges(
+    "workex_model",
+    workex_model_router,
+    {
+        "tools_workex": "tools_workex",
+        "workex_model": "workex_model",
+        END: END
+    }
+)
+
+
+
+# Edges
+workflow.add_edge("query_generator_model", "retriever_node")
+workflow.add_edge("retriever_node","builder_model")   
+workflow.add_edge("builder_model", "save_entry_state")
+workflow.add_edge("save_entry_state", "workex_model")
+
+
+
+# Compile
+workex_assistant = workflow.compile(name="workex_assistant")
+workex_assistant.name = "workex_assistant"

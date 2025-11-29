@@ -54,7 +54,7 @@ User's resume JSON:
 
 # Gemini model
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     temperature=0,
     max_output_tokens=2048
 )
@@ -62,12 +62,12 @@ llm = ChatGoogleGenerativeAI(
 # Create chain
 chain = prompt | llm | output_parser
 
-async def update_summary_and_skills(current_resume, tailoring_keys):
+async def update_summary_and_skills(current_resume):
     """
     Call LLM with system instructions to update summary and skills,
     """
     try:
-        result = await chain.ainvoke({"current_resume": current_resume, "tailoring_keys": tailoring_keys})
+        result = await chain.ainvoke({"current_resume": current_resume, "tailoring_keys": current_resume.get("tailoring_keys", [])})
 
         print("LLM raw output:", result)
         return result

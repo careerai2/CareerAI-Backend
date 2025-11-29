@@ -2,7 +2,7 @@ from typing import Dict
 from fastapi import WebSocket
 from bson import ObjectId
 from middlewares.verify_user import websocket_auth
-from db import get_database
+from config.db import get_database
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 class ConnectionManager:
