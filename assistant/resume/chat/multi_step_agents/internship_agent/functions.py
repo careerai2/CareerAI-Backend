@@ -1,5 +1,4 @@
 from models.resume_model import *
-import json
 from ...handoff_tools import *
 from config.chroma_config import chroma_client, embeddings
 
@@ -85,7 +84,7 @@ import jsonpatch
 
 
 # new version with more filters
-async def new_query_pdf_knowledge_base(
+def new_query_pdf_knowledge_base(
     query_text,
     role=["internship"],
     section=None,
@@ -127,7 +126,7 @@ async def new_query_pdf_knowledge_base(
     collection = chroma_client.get_or_create_collection(name="internship_guide_doc")
     
     # 3️⃣ Query Chroma
-    results = await collection.query(
+    results = collection.query(
         query_embeddings=[query_embedding],  # OR query_texts=[query_text]
         n_results=n_results,
         where=where_filter,

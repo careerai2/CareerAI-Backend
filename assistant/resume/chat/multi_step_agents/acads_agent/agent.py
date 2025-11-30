@@ -13,13 +13,13 @@ import assistant.resume.chat.token_count as token_count
 from ...utils.common_tools import extract_json_from_response,get_patch_field_and_index
 from ...utils.apply_patches import apply_patches_global
 from ...llm_model import llm,SwarmResumeState
-from ...utils.field_mapping import FieldMapping
+from ...utils.field_mapping import ACADS_FIELD_MAPPING
 
 from .tools import tools,transfer_tools
 from .prompts import Acads_Prompts
 from .routers import acads_model_router 
 from .functions import new_query_pdf_knowledge_base
-# from assistant.resume.chat.utils.query_vector_db import new_query_pdf_knowledge_base
+# from assistant.resume.chat.utils.query_vector_db im/port new_query_pdf_knowledge_base
 
 
 
@@ -161,46 +161,55 @@ async def retriever_node(state: SwarmResumeState, config: RunnableConfig):
             state["acads"]["retrieved_info"] = []
             return {"next_node": "builder_model"}
 
-       
+        # Collect all unique fields to avoid redundant fetches
+        unique_fields = set()
+        for patch in patches:
+            _, patch_field, _ = get_patch_field_and_index(patch.get("path", ""))
+            unique_fields.add(patch_field)
+            
+        if show_acads_logs:
+            logger.info(f"\n🔍 Unique fields to retrieve: {unique_fields}\n")
 
         all_results = []
+        
+        retrieved_info = None
 
         # Loop over each patch
-        for i, patch in enumerate(patches):
-            patch_path = patch.get("path", "")
-            patch_value = patch.get("value", "")
-            index, patch_field,append = get_patch_field_and_index(patch_path)
-            # kb_field = FIELD_MAPPING.get(patch_field)
-            kb_field = FieldMapping.PROJECT.get(patch_field,None)
+        for i, field in enumerate(unique_fields):
+            
+            kb_field = ACADS_FIELD_MAPPING.get(field,None)
 
             if show_acads_logs:
-                 logger.info(f"\n🔍 Patch {i+1}: project index={index}, field={patch_field}, KB field={kb_field}")
+                 logger.info(f"\n🔍 Patch {i+1}: field={field}, KB field={kb_field}")
 
-            section = "Academic Project Document Formatting Guidelines"
             
             retrieved_info = None  # initialize here to avoid UnboundLocalError
 
-            if patch_field == "description_bullets" and kb_field:
+            if field == "description_bullets" and kb_field is not None:
+                
+                section = "Academic Project Document Formatting Guidelines"
+                
                 retrieved_info = new_query_pdf_knowledge_base(
                     query_text=str(query),  # query string
                     logger=logger,
+                    # collection_name="acads_guide_doc",
                     role=["acads"],
                     section=section,
                     subsection="Action Verbs (to use in work descriptions)",
                     field=kb_field,
                     n_results=5,
-                    debug=False
+                    debug=show_acads_logs
                 )
                 all_results.append(f"[Action Verbs] => {retrieved_info}")
 
                 retrieved_info = new_query_pdf_knowledge_base(
-                    query_text=str(patch_value),  # use patch value as query
+                    query_text=str(query),  # use patch value as query
                     role=["acads"],
                     section=section,
                     subsection="Schema Requirements & Formatting Rules",
                     field=kb_field,
                     n_results=5,
-                    debug=False
+                    debug=show_acads_logs
                 )
                 all_results.append(f"[{patch_field}] {retrieved_info}")
 
@@ -298,7 +307,7 @@ async def save_entry_state(state: SwarmResumeState, config: RunnableConfig):
         result = await apply_patches_global(thread_id, patches,"academic_projects")
 
         if show_acads_logs:
-            logger.log(f"\nApply patches result : {result}\n")
+            logger.info(f"\nApply patches result : {result}\n")
         
         if result and result.get("status") == "success":           
             return {

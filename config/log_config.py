@@ -99,22 +99,46 @@ class PrettyFormatter(logging.Formatter):
             return f"{top_bar}\n{title}"
 
 
+
+
+
+# def get_logger(name="MyApp"):
+#     handler = RichHandler(rich_tracebacks=True, markup=True)
+#     handler.setFormatter(PrettyFormatter())
+
+#     logger = logging.getLogger(name)
+#     logger.setLevel(logging.DEBUG)
+
+#     # prevent multiple handlers if get_logger is called twice
+#     if not logger.handlers:
+#         logger.addHandler(handler)
+
+#     logger.propagate = False
+#     return logger
+
+
+# # # Example
+# # logger = get_logger("Test")
+# # logger.info("SERVER STARTED\nServer running at port 8000")
+# # logger.error("DATABASE ERROR\nCould not connect to PostgreSQL")
+
+
+
 def get_logger(name="MyApp"):
-    handler = RichHandler(rich_tracebacks=True, markup=True)
+    handler = RichHandler(
+        rich_tracebacks=True,
+        markup=True,
+        show_time=False,
+        show_level=False,
+        show_path=False
+    )
     handler.setFormatter(PrettyFormatter())
 
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
 
-    # prevent multiple handlers if get_logger is called twice
     if not logger.handlers:
         logger.addHandler(handler)
 
     logger.propagate = False
     return logger
-
-
-# # Example
-# logger = get_logger("Test")
-# logger.info("SERVER STARTED\nServer running at port 8000")
-# logger.error("DATABASE ERROR\nCould not connect to PostgreSQL")

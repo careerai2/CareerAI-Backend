@@ -13,7 +13,8 @@ from assistant.resume.chat.utils.apply_patches import apply_patches_global
 import assistant.resume.chat.token_count as token_count
 import json 
 from .functions import new_query_pdf_knowledge_base
-from ...utils.field_mapping import FieldMapping
+# from assistant.resume.chat.utils.query_vector_db import new_query_pdf_knowledge_base
+from ...utils.field_mapping import WOEKEX_FIELD_MAPPING
 from .propmts import WorkEx_Prompts
 from config.log_config import get_logger
 from config.env_config import show_workex_logs
@@ -247,21 +248,22 @@ def retriever_node(state: SwarmResumeState, config: RunnableConfig):
         section = "Work Experience Document Formatting Guidelines"
 
         for field in unique_fields:
-            kb_field = FieldMapping.WORKEX.get(field,None)
+            kb_field = WOEKEX_FIELD_MAPPING.get(field, None)
             
             if show_workex_logs:
                 logger.log(f"Fetching KB info for field: {field} -> KB field: {kb_field}")
 
-            if field == "responsibilities" and kb_field:
+            if field == "responsibilities" and kb_field is not None:
                 # Fetch action verbs
                 action_verbs_info = new_query_pdf_knowledge_base(
                     query_text=str(query),
                     role=["por"],
+                    # collection_name="workex_guide_doc",
                     section=section,
                     subsection="Action Verbs (to use in description bullets)",
                     field=kb_field,
                     n_results=5,
-                    debug=False
+                    debug=show_workex_logs
                 )
                 all_results.append(f"[Action Verbs] => {action_verbs_info}")
 
@@ -270,10 +272,11 @@ def retriever_node(state: SwarmResumeState, config: RunnableConfig):
                     query_text=str(query),
                     role=["por"],
                     section=section,
+                    # collection_name="workex_guide_doc",
                     subsection="Schema Requirements & Formatting Rules",
                     field=kb_field,
                     n_results=5,
-                    debug=False
+                    debug=show_workex_logs
                 )
                 all_results.append(f"[{field}] {schema_info}")
 

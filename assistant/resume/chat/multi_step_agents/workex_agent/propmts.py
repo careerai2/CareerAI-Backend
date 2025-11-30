@@ -42,7 +42,9 @@ class WorkEx_Prompts:
     # Main Acads Agent Prompt
     def get_main_prompt(current_entries:list[dict] | None,tailoring_keys: list[str]) -> str :
         
-        prompt = """"""
+        prompt = """
+         (Note: Entries are shown in 0-based index internally. Users speak in natural order (1st=0, 2nd=1, etc.). Never confuse the two; always map natural order → internal index.)
+        """
         
         return prompt
     

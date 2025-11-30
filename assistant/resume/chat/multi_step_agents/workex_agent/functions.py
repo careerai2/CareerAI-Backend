@@ -5,7 +5,6 @@ from logging import Logger
 # new version with more filters
 def new_query_pdf_knowledge_base(
     query_text,
-    logger=Logger,
     role=["workex"],
     section=None,
     subsection=None,
@@ -40,8 +39,8 @@ def new_query_pdf_knowledge_base(
         where_filter = {"$and": filters}
 
     if debug:
-        logger.debug(f"🔹 Query: {query_text}")
-        logger.debug(f"🔹 Filter: {where_filter}")
+        print(f"🔹 Query: {query_text}")
+        print(f"🔹 Filter: {where_filter}")
 
     collection = chroma_client.get_or_create_collection(name="workex_guide_doc")
     
@@ -54,7 +53,7 @@ def new_query_pdf_knowledge_base(
     )
 
     if not results["documents"] or not results["documents"][0]:
-        logger.warning("❌ No matching documents found.")
+        print("❌ No matching documents found.")
         return ""
 
     # 4️⃣ Select best match
