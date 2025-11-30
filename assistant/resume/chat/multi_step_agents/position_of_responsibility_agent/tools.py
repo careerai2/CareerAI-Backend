@@ -70,7 +70,7 @@ async def send_patches(
     
         
         tool_message = ToolMessage(
-            content="Successfully transferred to the pipeline to add the patches in an enhanced manner.",
+            content="Tool executed successfully",
             name="send_patches",
             tool_call_id=tool_call_id,
         )
@@ -105,6 +105,7 @@ async def send_patches(
             tool_call_id=tool_call_id,
         )
 
+        # raise ValueError({f"Error in send_patches tool: {e}"})
         # ❌ Do not raise ToolException if you want router to handle it
         return Command(
             goto="por_model",
@@ -114,7 +115,6 @@ async def send_patches(
                     "error_msg": fallback_error_msg,
                     "patches": patches,
                 }
-                
             },
         )
 

@@ -72,10 +72,6 @@ async def retrive_entry_from_resume(
         return None
 
 
-
-
-
-
 def get_patch_field_and_index(patch_path: str):
     """
     Extracts internship index and field from a JSON Patch path.
@@ -113,8 +109,6 @@ def get_patch_field_and_index(patch_path: str):
     
     # Path without index
     return None, parts[-1], append
-
-
 
 
 def get_unique_indices(patch_list: List[Dict]) -> List[int]:

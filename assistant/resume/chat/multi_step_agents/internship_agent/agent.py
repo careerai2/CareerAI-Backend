@@ -8,14 +8,14 @@ from utils.safe_trim_msg import safe_trim_messages
 from ...utils.common_tools import extract_json_from_response,get_patch_field_and_index
 from ...utils.apply_patches import apply_patches_global
 import assistant.resume.chat.token_count as token_count
-from .functions import new_query_pdf_knowledge_base
+# from .functions import new_query_pdf_knowledge_base
 from .functions import new_query_pdf_knowledge_base
 # from assistant.resume.chat.utils.query_vector_db import new_query_pdf_knowledge_base
-from ...utils.field_mapping import FieldMapping
+# from ...utils.field_mapping import FieldMapping
 from config.log_config import get_logger
 from config.env_config import show_internship_logs
 from .prompts import Internship_Prompts
-
+from ...utils.field_mapping import INTERNSHIP_FIELD_MAPPING
 # ---------------------------
 # 2. LLM with Tools
 # ---------------------------
@@ -69,7 +69,7 @@ async def internship_model(state: SwarmResumeState, config: RunnableConfig):
         logger.error(f"⚠️ Internship patch failed with error: {error_msg}")
         
         recovery_prompt = Internship_Prompts.get_recovery_prompt(error_msg,state["internship"]["patches"])
-        
+
         messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
         # Make it human-like using the same LLM pipeline
         response = await llm_internship.ainvoke([recovery_prompt], config)
@@ -92,6 +92,8 @@ async def internship_model(state: SwarmResumeState, config: RunnableConfig):
     try:
         
         system_prompt = Internship_Prompts.get_main_prompt(current_entries,tailoring_keys=tailoring_keys)
+        
+        # logger.debug(f"\n\nRecovery Prompt:\n{system_prompt}")
         messages = safe_trim_messages(state["messages"], max_tokens=MAX_TOKENS)
         response = await llm_internship.ainvoke([system_prompt] + messages, config)
 
@@ -170,42 +172,51 @@ async def retriever_node(state: SwarmResumeState, config: RunnableConfig):
             state["internship"]["retrieved_info"] = []
             return {"next_node": "builder_model"}
 
+        # Collect all unique fields to avoid redundant fetches
+        unique_fields = set()
+        for patch in patches:
+            _, patch_field, _ = get_patch_field_and_index(patch.get("path", ""))
+            unique_fields.add(patch_field)
+        
+        if show_internship_logs:
+            logger.info(f"🔍 Unique fields to retrieve: {unique_fields}")
+            
+            
         all_results = []
 
         # Loop over each patch
-        for i, patch in enumerate(patches):
-            patch_path = patch.get("path", "")
-            patch_value = patch.get("value", "")
-            index, patch_field,append = get_patch_field_and_index(patch_path)
-            kb_field = FieldMapping.INTERNSHIP.get(patch_field, None)
+        for i, field in enumerate(unique_fields):
+            kb_field = INTERNSHIP_FIELD_MAPPING.get(field, None)
 
             if show_internship_logs:
-                logger.info(f"\n🔍 Patch {i+1}: internship index={index}, field={patch_field}, KB field={kb_field}")
+                logger.info(f"\n🔍 Patch {i+1}: internship index={i}, field={patch_field}, KB field={kb_field}")
 
             section = "Internship Document Formatting Guidelines"
             
             retrieved_info = None  # initialize here to avoid UnboundLocalError
 
-            if patch_field == "internship_work_description_bullets" and kb_field:
-                retrieved_info = await new_query_pdf_knowledge_base(
+            if field == "internship_work_description_bullets" and kb_field is not None:
+                retrieved_info = new_query_pdf_knowledge_base(
                     query_text=str(query),  # query string
                     role=["internship"],
+                    # collection_name="internship_guide_doc",
                     section=section,
                     subsection="Action Verbs (to use in work descriptions)",
                     field=kb_field,
                     n_results=5,
-                    debug=False
+                    debug=show_internship_logs
                 )
                 all_results.append(f"[Action Verbs] => {retrieved_info}")
 
                 retrieved_info = new_query_pdf_knowledge_base(
-                    query_text=str(patch_value),  # use patch value as query
+                    query_text=str(query),  # use patch value as query
                     role=["internship"],
+                    # collection_name="internship_guide_doc",
                     section=section,
                     subsection="Schema Requirements & Formatting Rules",
                     field=kb_field,
                     n_results=5,
-                    debug=False
+                    debug=show_internship_logs
                 )
                 all_results.append(f"[{patch_field}] {retrieved_info}")
 
@@ -217,7 +228,6 @@ async def retriever_node(state: SwarmResumeState, config: RunnableConfig):
                 logger.info(f"Retriever returned {retrieved_info} results for patch {i+1}.\n")
 
 
-
         all_results_str = "\n".join(all_results)
         state["internship"]["retrieved_info"] = all_results_str
         state["internship"]["generated_query"] = ""  # clear after use
@@ -225,7 +235,7 @@ async def retriever_node(state: SwarmResumeState, config: RunnableConfig):
         if show_internship_logs:
             logger.info(f"\n✅ Retrieved info saved: {all_results_str} \n\n")
 
-        return {"next_node": "builder_model"}
+        return {"internship": state["internship"]}
 
     except Exception as e:
         logger.error(f"Error in retriever: {e}")

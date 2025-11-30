@@ -9,7 +9,7 @@ from .update_summar_skills import update_summary_and_skills
 from .common_tools import send_patch_to_frontend
 from .ws_utils import send_patch_to_frontend
 
-from utils.mapper import resume_section_map,ResumeSectionLiteral,Fields
+from utils.mapper import ResumeSectionLiteral
 
 
 ValidSectionLiteral = Literal["certifications","education_entries","work_experiences","internships","achievements","positions_of_responsibility","extra_curriculars","academic_projects"]

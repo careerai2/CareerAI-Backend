@@ -51,7 +51,7 @@ show_certification_logs = os.environ.get("SHOW_CERTIFICATIONS_LOGS", "False").lo
 show_scholastic_achievement_logs = os.environ.get("SHOW_SCHOLASTIC_ACHIEVEMENT_LOGS", "False").lower() == "true"
 show_extra_curricular_logs = os.environ.get("SHOW_EXTRA_CURRICULAR_LOGS", "False").lower() == "true"
 show_education_logs = os.environ.get("SHOW_EDUCATION_LOGS", "False").lower() == "true"
-
+show_bullet_logs = os.environ.get("SHOW_BULLET_LOGS", "False").lower() == "true" 
 
 MAX_TOKEN = int(os.environ.get("MAX_TOKEN", 325))
 

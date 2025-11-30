@@ -13,6 +13,11 @@ from config.redis_config import redis_service
 
 # KB to be changed currently internship set should be some global or change according to 
 from assistant.resume.chat.multi_step_agents.internship_agent.functions import new_query_pdf_knowledge_base
+from config.log_config import get_logger
+from config.env_config import show_bullet_logs
+
+logger = get_logger("Bullet Agent")
+
 
 class ask_agent_input(BaseModel):
     # sectionId: str
@@ -50,10 +55,12 @@ async def retrieve_entry(state: agent_state, config: RunnableConfig):
         return 
     entry = await retrive_entry_from_resume(thread_id, section, user_input.entryIndex)
 
-    print("\n\n\nRetrieved entry",entry)
+    if show_bullet_logs:
+        logger.info(f"Retrieved entry for section: {section}, entryIndex: {user_input.entryIndex} -> {entry}")
+        
     return {"entry": entry}
 
-
+# ------------------ Query Generator Model ------------------
 async def query_generator(state: agent_state, config: RunnableConfig):
     highlighted_text = state.user_input.selected_text
     user_request = state.user_input.question
@@ -100,13 +107,14 @@ async def query_generator(state: agent_state, config: RunnableConfig):
 ]
 
 
-    response = llm.invoke(messages, config=config)
+    response = await llm.ainvoke(messages, config=config)
 
     token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
     token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)
 
-    print("Query Generator Token Usage:", response.usage_metadata)
-    print("Generated Query:", response.content)
+    if show_bullet_logs:
+        logger.info("Query Generator Token Usage: %s", response.usage_metadata)
+        logger.info("Generated Query: %s", response.content)
 
     return {"query": response.content.strip()}
 
@@ -115,20 +123,20 @@ async def query_generator(state: agent_state, config: RunnableConfig):
 
 
 
-# Node 3: Retriever (function)
+#--------------- Node 3: Retriever (function) ------------------
 async def retriever(state: agent_state, config: RunnableConfig):
     try:
         query = state.query
         user_input = state.user_input
-        print("QUERY", query)
+        if show_bullet_logs:
+            logger.info(f"Retriever received query: {query} for field: {user_input.field}")
         field = resume_section_map(user_input.field)
         
         Section = Section_MAPPING.get(f"{field}")
         SubSection = Sub_Section_MAPPING.get(f"{field}")
-        print("FIELD", field)
-        print("Section =", Section)
-        print("SubSection =", SubSection)
-        print("Field =", FIELD_MAPPING_Bullet.get(f"{field}",None))
+
+        if show_bullet_logs:
+            logger.info(f"Mapped to Section: {Section}, SubSection: {SubSection}, Field: {FIELD_MAPPING_Bullet.get(f'{field}',None)}")
 
         relevant_content = new_query_pdf_knowledge_base(
             query_text=str(query),
@@ -139,11 +147,12 @@ async def retriever(state: agent_state, config: RunnableConfig):
             n_results=5,
             debug=False
         )
+        if show_bullet_logs:
+            logger.info(f"Relevant Content: {relevant_content}")
 
-        print("\n\nRelevant Content", relevant_content)
         return {"retrieved_content": relevant_content}
     except Exception as e:
-        print("Error in retriever:", e)
+        logger.error(f"Error in retriever: {e}")
         return {"retrieved_content": None}
 
 
@@ -232,13 +241,14 @@ async def response_generator(state: agent_state, config: RunnableConfig):
     
     prompt = prompt_genaral if state.user_input.field != Fields.Summary else prompt_for_summary
     
-    print("\n\nPatch Generator Prompt:", prompt,"\n\n\n")
+    if show_bullet_logs:
+        logger.info("\nPatch Generator Prompt: %s", prompt)
 
-    response = llm.invoke([prompt, HumanMessage(content=user_req)], config=config)
+    response = await llm.ainvoke([prompt, HumanMessage(content=user_req)], config=config)
     
-
-    print("\nPatch Generator Metadata:", response.usage_metadata)
-    print("Patch Generator", response)
+    if show_bullet_logs:
+        logger.info("\nPatch Generator Metadata: %s", response.usage_metadata)
+        logger.info("Patch Generator Response: %s", response.content)
 
     token_count.total_Input_Tokens += response.usage_metadata.get("input_tokens", 0)
     token_count.total_Output_Tokens += response.usage_metadata.get("output_tokens", 0)

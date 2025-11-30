@@ -38,7 +38,7 @@ async def send_patches(
     """
 
     try:
-        logger.info(f"Send Patch PATCH:", patches)
+        logger.info("Send Patch PATCH: %s", patches)
         
         
         user_id = config["configurable"].get("user_id")
@@ -65,7 +65,7 @@ async def send_patches(
             raise ValueError(f"Invalid JSON Patch operations: {e}")
     
         tool_message = ToolMessage(
-            content="Successfully transferred to the pipeline to the patches in a enhanced manner.",
+            content="Tool excuted successfully.",
             name="send_patches",
             tool_call_id=tool_call_id,
         )
@@ -97,14 +97,13 @@ async def send_patches(
             tool_call_id=tool_call_id,
             status="error"
         )
-
         # ❌ Do not raise ToolException if you want router to handle it
         return Command(
             goto="acads_model",
             update={
                 "messages": [fallback_msg],
                 "acads": {
-                    # "error_msg": fallback_error_msg,
+                    "error_msg": fallback_error_msg,
                     "patches": patches,
                 }
                 
